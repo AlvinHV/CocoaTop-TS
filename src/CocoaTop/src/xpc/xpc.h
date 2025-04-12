@@ -2,12 +2,9 @@
 
 #ifndef __XPC_H__
 #define __XPC_H__
+#include "xpc/base.h"
 
-//#include "xpc/base.h"
-
-typedef void *xpc_object_t;
 typedef void *xpc_pipe_t;
-typedef void *xpc_connection_t;
 
 __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_5_0)
 //XPC_EXPORT XPC_NONNULL1

@@ -1,3 +1,4 @@
+#import "xpc/xpc.h"
 #import "Sock.h"
 #import "ProcArray.h"
 #import <mach-o/dyld_images.h>
@@ -9,14 +10,13 @@
 #import "sys/libproc.h"
 #import "sys/dyld64.h"
 #import "kern/debug.h"
-#import "xpc/xpc.h"
 #include <dlfcn.h>
 
 #ifndef SYS_stack_snapshot 
 #define SYS_stack_snapshot 365
 #endif
 
-static UIColor *_redColor() {
+static UIColor *_redColor(void) {
     if (@available(iOS 7, *)) {
         return [UIColor systemRedColor];
     } else {
@@ -24,7 +24,7 @@ static UIColor *_redColor() {
     }
 }
 
-static UIColor *_orangeColor() {
+static UIColor *_orangeColor(void) {
     if (@available(iOS 7, *)) {
         return [UIColor systemOrangeColor];
     } else {
@@ -32,7 +32,7 @@ static UIColor *_orangeColor() {
     }
 }
 
-static UIColor *_labelColor() {
+static UIColor *_labelColor(void) {
     if (@available(iOS 13, *)) {
         return [UIColor labelColor];
     } else {
@@ -40,7 +40,7 @@ static UIColor *_labelColor() {
     }
 }
 
-static UIColor *_blueColor() {
+static UIColor *_blueColor(void) {
     if (@available(iOS 7, *)) {
         return [UIColor systemBlueColor];
     } else {
@@ -48,7 +48,7 @@ static UIColor *_blueColor() {
     }
 }
 
-static UIColor *_grayColor() {
+static UIColor *_grayColor(void) {
     if (@available(iOS 13, *)) {
         return [UIColor systemGrayColor];
     } else {
@@ -56,7 +56,7 @@ static UIColor *_grayColor() {
     }
 }
 
-static UIColor *_greenColor() {
+static UIColor *_greenColor(void) {
     if (@available(iOS 13, *)) {
         return [UIColor colorWithDynamicProvider:^(UITraitCollection *collection) {
             if (collection.userInterfaceStyle == UIUserInterfaceStyleDark) {
@@ -664,6 +664,7 @@ void dump(unsigned char *b, int s)
 {
 	if (table) vm_deallocate(mach_task_self(), (vm_address_t)table, count * sizeof(*table));
 	if (task) mach_port_deallocate(mach_task_self(), task);
+    [super dealloc];
 }
 @end
 
