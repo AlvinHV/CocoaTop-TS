@@ -8,3 +8,6 @@
 /src/.theos
 /src/theos
 /src/packages
+/.theos
+/src/CocoaTop/CocoaTop.xcodeproj/xcuserdata
+/src/CocoaTop/CocoaTop.xcodeproj/project.xcworkspace/xcuserdata

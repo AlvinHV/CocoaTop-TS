@@ -1,0 +1,12 @@
+Package: ru.domo.cocoatop64
+Name: CocoatopTS
+Version: 3.0.0
+Architecture: iphoneos-arm
+Description: Process Viewer for iOS GUI, updated for iOS 13 by SXX.
+Depends: firmware (>= 12.0) | org.swift.libswift
+Conflicts: ru.domo.cocoatop
+Replaces: ru.domo.cocoatop
+Breaks: ru.domo.cocoatop
+Author: Domo, SXX
+Maintainer: AlvinHV
+Section: Applications
