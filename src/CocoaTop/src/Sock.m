@@ -664,7 +664,6 @@ void dump(unsigned char *b, int s)
 {
 	if (table) vm_deallocate(mach_task_self(), (vm_address_t)table, count * sizeof(*table));
 	if (task) mach_port_deallocate(mach_task_self(), task);
-    [super dealloc];
 }
 @end
 
@@ -717,7 +716,9 @@ void dump(unsigned char *b, int s)
         });
         
         if (xpc_pipe_routine(xp, xpc_in, &xpc_out) || !xpc_dictionary_get_int64(xpc_out, "error")) {
+            #if !OS_OBJECT_USE_OBJC_RETAIN_RELEASE
             xpc_release(xpc_in);
+            #endif
             xpc_in = nil;
             close(hpipe[1]);
             hpipe[1] = -1;
@@ -752,9 +753,11 @@ void dump(unsigned char *b, int s)
             free(buf);
         }
     }
+#if !OS_OBJECT_USE_OBJC_RETAIN_RELEASE
 	if (xpc_in) xpc_release(xpc_in);
 	if (xpc_out) xpc_release(xpc_out);
 	xpc_release(xp);
+#endif
     if (hpipe[0] != -1) {
         close(hpipe[0]);
     }

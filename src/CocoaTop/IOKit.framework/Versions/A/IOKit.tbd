@@ -1,14 +1,11 @@
---- !tapi-tbd-v2
-archs:           [ armv7, armv7s, arm64 ]
-uuids:           [ 'armv7: FC940E36-1456-363E-B99D-3267CDA0EC93', 'armv7s: 8020168A-CEE6-3EED-AEFE-ADF146EF990A', 
-                   'arm64: 70B81CA4-1483-3040-8910-29A266076DD8' ]
-platform:        ios
-install-name:    /System/Library/Frameworks/IOKit.framework/Versions/A/IOKit
+--- !tapi-tbd
+tbd-version:     4
+targets:         [ arm64-ios, arm64e-ios, x86_64-ios-simulator, arm64-ios-simulator ]
+install-name:    '/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit'
 current-version: 275
-objc-constraint: none
-exports:         
-  - archs:           [ armv7, armv7s ]
-    symbols:         [ _IOConnectMethodScalarIScalarO, _IOConnectMethodScalarIStructureI, 
+exports:
+  - targets:         [ arm64-ios, arm64e-ios, x86_64-ios-simulator, arm64-ios-simulator ]
+    symbols:         [ _IOConnectMethodScalarIScalarO, _IOConnectMethodScalarIStructureI,
                        _IOConnectMethodScalarIStructureO, _IOConnectMethodStructureIStructureO, 
                        _IOMapMemory, _io_async_method_scalarI_scalarO, _io_async_method_scalarI_structureI, 
                        _io_async_method_scalarI_structureO, _io_async_method_structureI_structureO, 
@@ -44,11 +41,9 @@ exports:
                        _io_service_get_state, _io_service_match_property_table, _io_service_match_property_table_bin, 
                        _io_service_match_property_table_ool, _io_service_open_extended, 
                        _io_service_request_probe, _io_service_set_authorization_id, 
-                       _io_service_wait_quiet ]
-  - archs:           [ armv7, armv7s, arm64 ]
-    symbols:         [ _IOAVAudioFormatTypeString, _IOAVAudioGetChannelAllocation, 
-                       _IOAVAudioGetChannelAllocationDefault, _IOAVAudioGetChannelLayoutData, 
-                       _IOAVAudioGetSpeakerAllocationMask, _IOAVAudioInterfaceCopyChannelLayoutElements, 
+                       _io_service_wait_quiet, _IOAVAudioFormatTypeString, _IOAVAudioGetChannelAllocation,
+                       _IOAVAudioGetChannelAllocationDefault, _IOAVAudioGetChannelLayoutData,
+                       _IOAVAudioGetSpeakerAllocationMask, _IOAVAudioInterfaceCopyChannelLayoutElements,
                        _IOAVAudioInterfaceCopyDiagnosticsString, _IOAVAudioInterfaceCopyElements, 
                        _IOAVAudioInterfaceCopyProperties, _IOAVAudioInterfaceCopyProperty, 
                        _IOAVAudioInterfaceCreate, _IOAVAudioInterfaceCreateWithService, 
