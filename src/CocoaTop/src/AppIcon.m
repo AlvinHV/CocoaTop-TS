@@ -84,7 +84,7 @@
 	UIImage *image = [UIImage imageWithContentsOfFile:iconPath];
 	if (!image)
 		return nil;
-//	NSLog(@"Icon(%fx%f) = %@", image.size.width, image.size.height, iconPath);
+	NSLog(@"Icon(%fx%f) = %@", image.size.width, image.size.height, iconPath);
 	if (image.size.height * image.scale < 58) {
 		if ([UIImage respondsToSelector:@selector(_applicationIconImageForBundleIdentifier:roleIdentifier:format:scale:)])
 			return [UIImage _applicationIconImageForBundleIdentifier:bundle roleIdentifier:nil format:1 scale:[UIScreen mainScreen].scale];
