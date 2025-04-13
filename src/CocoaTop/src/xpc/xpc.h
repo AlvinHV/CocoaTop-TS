@@ -8,8 +8,10 @@ typedef void *xpc_pipe_t;
 
 __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_5_0)
 //XPC_EXPORT XPC_NONNULL1
+#if !OS_OBJECT_USE_OBJC_RETAIN_RELEASE
 void
-xpc_release(xpc_object_t object); 
+xpc_release(xpc_object_t object);
+#endif
 
 __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_5_0)
 //XPC_EXPORT XPC_WARN_RESULT XPC_NONNULL_ALL

@@ -65,7 +65,7 @@ uint64_t mach_time_to_milliseconds(uint64_t mach_time)
 	static dispatch_once_t onceToken;
 	dispatch_once(&onceToken, ^{
 		// Initialize symlinks
-		source = @[@"/var/", @"/var/stash/", @"/usr/include/", @"/usr/share/", @"/usr/lib/pam/", @"/tmp/", @"/User/", @"/Applications/", @"/Library/Ringtones/", @"/Library/Wallpaper/"];
+        source = @[@"/var/", @"/var/stash/", @"/usr/include/", @"/usr/share/", @"/usr/lib/pam/", @"/tmp/", @"/User/", @"/Applications/", @"/Library/Ringtones/", @"/Library/Wallpaper/"];
 		NSMutableArray *results = [NSMutableArray arrayWithCapacity:source.count];
 		for (NSString *src in source)
 			[results addObject:[PSSymLink absoluteSymLinkDestination:src]];
