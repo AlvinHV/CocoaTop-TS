@@ -61,11 +61,11 @@
 	menuFrame.origin.y = willAppear ? 0.0 : -menuFrame.size.height;
 	CGFloat menuTintAlpha = willAppear ? 0.7 : 0.0;
 	void (^animations)(void) = ^ {
-		menuView.frame = menuFrame;
-		menuTintView.alpha = menuTintAlpha;
+        self->menuView.frame = menuFrame;
+        self->menuTintView.alpha = menuTintAlpha;
 	};
 	void (^completion)(BOOL) = ^(BOOL finished) {
-		if (!willAppear) [menuContainerView removeFromSuperview];
+        if (!willAppear) [self->menuContainerView removeFromSuperview];
 	};
 //#if __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_7_0
     if (@available(iOS 7, *)) {

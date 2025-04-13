@@ -107,7 +107,7 @@ NSString *psProcessTty(PSProc *proc)
 	return [NSString stringWithCString:(ttname ? ttname : "??") encoding:NSASCIIStringEncoding];
 }
 
-NSString *psSystemUptime()
+NSString *psSystemUptime(void)
 {
 	static struct timeval boottime = {0};
 	if (boottime.tv_sec == 0) {
