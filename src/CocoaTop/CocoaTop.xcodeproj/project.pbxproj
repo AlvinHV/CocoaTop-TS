@@ -14,6 +14,8 @@
 		AC6A8903259DCD64009AC84F /* CocoaTop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CocoaTop.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AC6A89B5259DCF2C009AC84F /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = IOKit.framework; sourceTree = "<group>"; };
 		E10F03A42DAAFB7500668E1A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		E10F04E12DAB4C8C00668E1A /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.4.sdk/System/iOSSupport/System/Library/Frameworks/UIKit.framework; sourceTree = DEVELOPER_DIR; };
+		E10F04E32DAB515200668E1A /* entitlements.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = entitlements.xml; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -55,6 +57,7 @@
 		AC6A88FA259DCD64009AC84F = {
 			isa = PBXGroup;
 			children = (
+				E10F04E32DAB515200668E1A /* entitlements.xml */,
 				E10F03A42DAAFB7500668E1A /* Info.plist */,
 				AC6A89B5259DCF2C009AC84F /* IOKit.framework */,
 				E10F042A2DAAFC4500668E1A /* res */,
@@ -75,6 +78,7 @@
 		AC6A89B7259DDC80009AC84F /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				E10F04E12DAB4C8C00668E1A /* UIKit.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -282,6 +286,7 @@
 					"@executable_path/Frameworks",
 				);
 				LIBRARY_SEARCH_PATHS = "$(inherited)";
+				MARKETING_VERSION = 3.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ru.domo.cocoatop64;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -312,6 +317,7 @@
 					"@executable_path/Frameworks",
 				);
 				LIBRARY_SEARCH_PATHS = "$(inherited)";
+				MARKETING_VERSION = 3.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ru.domo.cocoatop64;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
