@@ -543,8 +543,6 @@ void dump(unsigned char *b, int s)
 + (int)getKernelObjects:(NSMutableDictionary *)objects
 {
 	PSProcInfo *procs = [PSProcInfo psProcInfoSort:NO];
-	if (procs->ret)
-		return procs->ret;
 	struct proc_fdinfo *fdinfo = 0;
 	size_t bufSize = 0, curBufSize = 0;
 	for (int i = 0; i < procs->count; i++) {
@@ -845,8 +843,6 @@ const char *port_types[] = {"","(thread)","(task)","(host)","(host priv)","(proc
 		return 0;
 
 	PSProcInfo *procs = [PSProcInfo psProcInfoSort:YES];
-	if (procs->ret)
-		return procs->ret;
 	for (int i = 0; i < procs->count; i++) {
 		struct extern_proc *ep = &procs->kp[i].kp_proc;
 		if (ep->p_pid != socks.proc.pid) {

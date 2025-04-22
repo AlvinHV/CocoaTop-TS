@@ -1,5 +1,6 @@
 #import "AppDelegate.h"
 #import "RootViewController.h"
+#import "RootHelperManager.h"
 
 @implementation RootTabMaskController
 
@@ -14,36 +15,32 @@
 -(void)viewDidLoad {
     [super viewDidLoad];
     [self.view addSubview: controller.view];
-    if (@available(iOS 11, *)) {
-        mask = [[UIView alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
-        mask.translatesAutoresizingMaskIntoConstraints = NO;
-        if (@available(iOS 13, *)) {
-            mask.backgroundColor = [UIColor colorWithDynamicProvider:^(UITraitCollection *collection) {
-                if (collection.userInterfaceStyle == UIUserInterfaceStyleDark) {
-                    return [UIColor colorWithWhite:.31 alpha:.85];
-                } else {
-                    return [UIColor colorWithWhite:.75 alpha:.85];
-                }
-            }];
-        } else {
-            mask.backgroundColor = [UIColor colorWithWhite:.75 alpha:.85];
-        }
-        [self.view addSubview: mask];
-        [self.view bringSubviewToFront: mask];
+    mask = [[UIView alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
+    mask.translatesAutoresizingMaskIntoConstraints = NO;
+    if (@available(iOS 13, *)) {
+        mask.backgroundColor = [UIColor colorWithDynamicProvider:^(UITraitCollection *collection) {
+            if (collection.userInterfaceStyle == UIUserInterfaceStyleDark) {
+                return [UIColor colorWithWhite:.31 alpha:.85];
+            } else {
+                return [UIColor colorWithWhite:.75 alpha:.85];
+            }
+        }];
+    } else {
+        mask.backgroundColor = [UIColor colorWithWhite:.75 alpha:.85];
     }
+    [self.view addSubview: mask];
+    [self.view bringSubviewToFront: mask];
 }
 
 -(void)viewWillLayoutSubviews {
     [super viewWillLayoutSubviews];
-    if (@available(iOS 11, *)) {
-        UIEdgeInsets insets = self.view.safeAreaInsets;
-        if (insets.bottom != 0) {
-            mask.hidden = false;
-            mask.frame = CGRectMake(0, self.view.bounds.size.height - insets.bottom, self.view.bounds.size.width, insets.bottom);
-            [self.view bringSubviewToFront: mask];
-        } else {
-            mask.hidden = true;
-        }
+    UIEdgeInsets insets = self.view.safeAreaInsets;
+    if (insets.bottom != 0) {
+        mask.hidden = false;
+        mask.frame = CGRectMake(0, self.view.bounds.size.height - insets.bottom, self.view.bounds.size.width, insets.bottom);
+        [self.view bringSubviewToFront: mask];
+    } else {
+        mask.hidden = true;
     }
     if (controller.view != nil) {
         controller.view.frame = self.view.frame;
@@ -56,13 +53,23 @@
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
 {
-    //[UITableView appearance].estimatedRowHeight = 0;
     [UITableView appearance].rowHeight = 44;
     [UITableView appearance].sectionHeaderHeight = 23;
     [UITableView appearance].sectionFooterHeight = 23;
-    if (@available(iOS 11, *)) {
-        [UIScrollView appearance].contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentAutomatic;
+    [UIScrollView appearance].contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentAutomatic;
+    
+    // start helper
+    NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
+    NSString *helperPath = [bundlePath stringByAppendingPathComponent:@"CocoaTop-helper"];
+    NSLog(@"Loading CocoaTop-helper: %@", helperPath);
+    NSError *error = NULL;
+    #if !TARGET_IPHONE_SIMULATOR
+    if (![[RootHelperManager sharedManager] startHelperWithPath: helperPath error: &error]) {
+        NSLog(@"Error loading: %@", error);
+        [[UIApplication sharedApplication] performSelector:@selector(suspend)];
     }
+    #endif
+    
 	// Create UIWindow
 	self.window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
 	// Allocate the navigation controller

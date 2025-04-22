@@ -172,20 +172,16 @@ unsigned int mach_thread_priority(thread_t thread, policy_t policy)
 	// Rusage info (iOS7+)
 	memcpy(&rusage_prev, &rusage, sizeof(rusage));
 	memset(&rusage, 0, sizeof(rusage));
-//#if __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_7_0
-    if (@available(iOS 7, *)) {
-        if (proc_pid_rusage(self.pid, RUSAGE_INFO_V2, &rusage) == 0) {
-            if (!rusage_prev.ri_proc_start_abstime)
-                // Fill in rusage_prev on first update
-                memcpy(&rusage_prev, &rusage, sizeof(rusage_prev));
-            // Values for kernel (pid 0) can only be acquired from rusage on iOS7+
-            if (!basic.resident_size)
-                basic.resident_size = rusage.ri_resident_size;
-            if (!self.ptime)
-                self.ptime = mach_time_to_milliseconds(rusage.ri_user_time + rusage.ri_system_time) / 10;	// 100's of a second
-        }
+    if (proc_pid_rusage(self.pid, RUSAGE_INFO_V2, &rusage) == 0) {
+        if (!rusage_prev.ri_proc_start_abstime)
+            // Fill in rusage_prev on first update
+            memcpy(&rusage_prev, &rusage, sizeof(rusage_prev));
+        // Values for kernel (pid 0) can only be acquired from rusage on iOS7+
+        if (!basic.resident_size)
+            basic.resident_size = rusage.ri_resident_size;
+        if (!self.ptime)
+            self.ptime = mach_time_to_milliseconds(rusage.ri_user_time + rusage.ri_system_time) / 10;    // 100's of a second
     }
-//#endif
 }
 
 - (void)updateMachInfo
