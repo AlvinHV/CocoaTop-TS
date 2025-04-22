@@ -12,21 +12,6 @@
 
 #define NTSTAT_PREQUERY_INTERVAL	0.1
 
-@implementation UIScrollView (AdjustInset)
-
--(UIEdgeInsets)realUIContentInset {
-    if (@available(iOS 11.0, *)) {
-        //UIEdgeInsets system = self.adjustedContentInset;
-        //UIEdgeInsets user = self.contentInset;
-        //return UIEdgeInsetsMake(system.top + user.top, system.left + user.left, system.bottom + user.bottom, system.right + user.right);
-        return self.adjustedContentInset;
-    } else {
-        return self.contentInset;
-    }
-}
-
-@end
-
 @implementation RootViewController
 {
 	GridHeaderView *header;
@@ -106,8 +91,6 @@
 	[super viewDidLoad];
 	[UIApplication sharedApplication].statusBarStyle = UIStatusBarStyleDefault;
 	bool isPhone = UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPhone;
-
-//	self.wantsFullScreenLayout = YES;
 	[self popupMenuWithItems:@[@"Settings", @"Columns", @"Quick Guide", @"About"] selected:-1 aligned:UIControlContentHorizontalAlignmentLeft];
 	self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithImage:[UIImage imageNamed:@"UIButtonBarHamburger"] style:UIBarButtonItemStylePlain
 		target:self action:@selector(popupMenuToggle)];
@@ -144,11 +127,8 @@
     self.tableView.tableFooterView = [[UIView alloc] initWithFrame: CGRectZero];
 
 	self.tableView.sectionHeaderHeight = self.tableView.sectionHeaderHeight * 3 / 2;
-//#if __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_7_0
-    if (@available(iOS 7, *)) {
-        [self.tableView setSeparatorInset:UIEdgeInsetsZero];
-    }
-//#endif
+    [self.tableView setSeparatorInset:UIEdgeInsetsZero];
+
 	[[NSUserDefaults standardUserDefaults] registerDefaults:@{
 		@"Columns" : @[@0, @1, @3, @5, @20, @6, @7, @9, @12, @13],
 		@"UpdateInterval" : @"1",
@@ -368,7 +348,7 @@
     }
     [self columnConfigChanged];
     // Hide filter bar
-    CGFloat minOffset = filter.frame.size.height - self.tableView.realUIContentInset.top;
+    CGFloat minOffset = filter.frame.size.height - self.tableView.adjustedContentInset.top;
     if (self.tableView.contentOffset.y < minOffset)
         self.tableView.contentOffset = CGPointMake(0, minOffset);
     // Refresh interval

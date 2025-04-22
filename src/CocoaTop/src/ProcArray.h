@@ -6,7 +6,6 @@
 {
 @public struct kinfo_proc *kp;
 @public size_t count;
-@public int ret;
 }
 + (instancetype)psProcInfoSort:(BOOL)sort;
 @end

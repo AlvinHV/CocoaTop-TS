@@ -36,8 +36,8 @@
 {
 	if ([menuContainerView superview] != nil) {
 		CGRect frame = [self.navigationController.view convertRect:self.view.frame fromView:self.view.superview];
-		frame.origin.y += self.tableView.realUIContentInset.top;
-		frame.size.height -= self.tableView.realUIContentInset.top;
+		frame.origin.y += self.tableView.adjustedContentInset.top;
+		frame.size.height -= self.tableView.adjustedContentInset.top;
 		[menuContainerView setFrame:frame];
 		for (UIButton *button in menuView.subviews)
 			button.selected = button.tag == self.popupMenuSelected;
