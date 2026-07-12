@@ -1,6 +1,28 @@
 #import "Compat.h"
 #import <mach/mach_time.h>
 
+NSString *CocoaTopDefaultsDomain(void)
+{
+	static NSString *domain;
+	static dispatch_once_t onceToken;
+	dispatch_once(&onceToken, ^{
+		NSString *identifier = [[NSBundle mainBundle] bundleIdentifier] ?: @"ru.domo.cocoatop64";
+		domain = [NSHomeDirectory() stringByAppendingPathComponent:
+			[NSString stringWithFormat:@"Library/Preferences/%@.plist", identifier]];
+	});
+	return domain;
+}
+
+NSUserDefaults *CocoaTopUserDefaults(void)
+{
+	static NSUserDefaults *defaults;
+	static dispatch_once_t onceToken;
+	dispatch_once(&onceToken, ^{
+		defaults = [[NSUserDefaults alloc] initWithSuiteName:CocoaTopDefaultsDomain()];
+	});
+	return defaults;
+}
+
 #if __IPHONE_OS_VERSION_MAX_ALLOWED < __IPHONE_6_0
 
 @implementation NSArray(Subscripts)
@@ -72,7 +94,7 @@ uint64_t mach_time_to_milliseconds(uint64_t mach_time)
 		target = [results copy];
 	});
 	path = [path stringByStandardizingPath];
-	if (![path hasPrefix:@"/"] || ![[NSUserDefaults standardUserDefaults] boolForKey:@"ShortenPaths"])
+	if (![path hasPrefix:@"/"] || ![CocoaTopUserDefaults() boolForKey:@"ShortenPaths"])
 		return path;
 	// Replace link targets with symlinks
 	for (int i = 0; i < target.count; i++) {

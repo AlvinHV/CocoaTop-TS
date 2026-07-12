@@ -148,7 +148,7 @@ static NSArray *presetNames;
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
-	[[NSUserDefaults standardUserDefaults] setObject:presetList[presetNames[indexPath.row]] forKey:@"Columns"];
+	[CocoaTopUserDefaults() setObject:presetList[presetNames[indexPath.row]] forKey:@"Columns"];
 	[self.navigationController popViewControllerAnimated:YES];
 }
 
@@ -203,7 +203,7 @@ enum InOutCols {
 	NSMutableArray *order = [NSMutableArray array];
 	for (PSColumn* col in cols[_in])
 		[order addObject:[NSNumber numberWithUnsignedInteger:col.tag]];
-	[[NSUserDefaults standardUserDefaults] setObject:order forKey:@"Columns"];
+	[CocoaTopUserDefaults() setObject:order forKey:@"Columns"];
 }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView

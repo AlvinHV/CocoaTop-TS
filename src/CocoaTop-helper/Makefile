@@ -1,4 +1,4 @@
-TARGET  = CocoaTop-helper
+BINARY  = CocoaTop-helper
 OUTDIR ?= bin
 
 CC      = xcrun -sdk iphoneos cc -arch arm64
@@ -7,11 +7,11 @@ CFLAGS  = -Wall
 
 .PHONY: clean all 
 
-all: clean $(OUTDIR)/$(TARGET)
+all: clean $(OUTDIR)/$(BINARY)
 
 DEBUG ?= 0
 ifeq ($(DEBUG), 1)
-    CFLAGS +=
+    CFLAGS += -O0 -g
 else
     CFLAGS += -O2
 endif
@@ -19,9 +19,9 @@ endif
 $(OUTDIR):
 	mkdir -p $(OUTDIR)
 
-$(OUTDIR)/$(TARGET): RootWrapper.c | $(OUTDIR)
+$(OUTDIR)/$(BINARY): RootWrapper.c | $(OUTDIR)
 	$(CC) -o $@ $^ $(CFLAGS)
 	$(LDID) -SEnt.plist $@
 
 clean:
-	rm -f $(OUTDIR)/$(TARGET)
+	rm -f $(OUTDIR)/$(BINARY)

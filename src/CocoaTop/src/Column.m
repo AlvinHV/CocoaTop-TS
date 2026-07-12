@@ -198,7 +198,7 @@ NSString *psProcessCpuTime(unsigned int ptime)
 
 + (NSMutableArray *)psGetShownColumnsWithWidth:(NSUInteger)width
 {
-	NSArray *columnOrder = [[NSUserDefaults standardUserDefaults] arrayForKey:@"Columns"];
+	NSArray *columnOrder = [CocoaTopUserDefaults() arrayForKey:@"Columns"];
 	NSMutableArray *shownCols = [NSMutableArray array];
 	PSColumn *extendedcol = nil;
 	// Sanity check

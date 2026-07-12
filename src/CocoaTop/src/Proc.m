@@ -37,7 +37,7 @@
 			memset(&netstat, 0, sizeof(netstat));
 			memset(&netstat_cache, 0, sizeof(netstat_cache));
 			memset(&rusage, 0, sizeof(rusage));
-			NSString *firslCol = [[NSUserDefaults standardUserDefaults] stringForKey:@"FirstColumnStyle"];
+			NSString *firslCol = [CocoaTopUserDefaults() stringForKey:@"FirstColumnStyle"];
 			if (self.app) {
 				NSString *ident = self.app[@"CFBundleIdentifier"];
 				if (ident)

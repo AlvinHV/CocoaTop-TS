@@ -94,6 +94,8 @@
 #endif
 
 uint64_t mach_time_to_milliseconds(uint64_t mach_time);
+FOUNDATION_EXPORT NSString *CocoaTopDefaultsDomain(void);
+FOUNDATION_EXPORT NSUserDefaults *CocoaTopUserDefaults(void);
 
 
 @interface PSSymLink : NSObject

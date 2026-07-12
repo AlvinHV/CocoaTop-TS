@@ -74,7 +74,7 @@
 		CGSize size = [UIApplication sharedApplication].statusBarFrame.size;
 		CGFloat slide = MIN(size.width, size.height) +
 			self.navigationController.navigationBar.frame.size.height +
-			([[NSUserDefaults standardUserDefaults] boolForKey:@"ShowHeader"] ? self.tableView.sectionHeaderHeight : 0);
+			([CocoaTopUserDefaults() boolForKey:@"ShowHeader"] ? self.tableView.sectionHeaderHeight : 0);
 		CGPoint contentOffset = self.tableView.contentOffset;
 		contentOffset.y += fullScreen ? -slide : slide;
 		[self.tableView setContentOffset:contentOffset animated:NO];
@@ -129,7 +129,7 @@
 	self.tableView.sectionHeaderHeight = self.tableView.sectionHeaderHeight * 3 / 2;
     [self.tableView setSeparatorInset:UIEdgeInsetsZero];
 
-	[[NSUserDefaults standardUserDefaults] registerDefaults:@{
+	[CocoaTopUserDefaults() registerDefaults:@{
 		@"Columns" : @[@0, @1, @3, @5, @20, @6, @7, @9, @12, @13],
 		@"UpdateInterval" : @"1",
 		@"FullWidthCommandLine" : @NO,
@@ -269,7 +269,7 @@
             }
 //#endif
 		}
-	} else if ([[NSUserDefaults standardUserDefaults] boolForKey:@"AutoJumpNewProcess"]) {
+	} else if ([CocoaTopUserDefaults() boolForKey:@"AutoJumpNewProcess"]) {
 		// If there's a new/terminated process, scroll to it
 		NSUInteger
 			idx = [procs indexOfDisplayed:ProcDisplayStarted];
@@ -299,15 +299,15 @@
 		if (filter.isFirstResponder && !filter.text.length) {
 			// Change filtering column
 			filterColumn = col;
-			[[NSUserDefaults standardUserDefaults] setInteger:col.tag forKey:@"FilterColumn"];
+			[CocoaTopUserDefaults() setInteger:col.tag forKey:@"FilterColumn"];
 			[self searchBarTextDidEndEditing:filter];
 		} else {
 			// Change sorting column
 			sortDescending = sortColumn == col ? !sortDescending : col.style & ColumnStyleSortDesc;
 			[header sortColumnOld:sortColumn New:col desc:sortDescending];
 			sortColumn = col;
-			[[NSUserDefaults standardUserDefaults] setInteger:col.tag forKey:@"SortColumn"];
-			[[NSUserDefaults standardUserDefaults] setBool:sortDescending forKey:@"SortDescending"];
+			[CocoaTopUserDefaults() setInteger:col.tag forKey:@"SortColumn"];
+			[CocoaTopUserDefaults() setBool:sortDescending forKey:@"SortDescending"];
 			[timer fire];
 		}
 		break;
@@ -326,11 +326,11 @@
 	configId++;
 	columns = [PSColumn psGetShownColumnsWithWidth:UIApplication.sharedApplication.keyWindow.bounds.size.width];
 	// Find sort column and create table header
-	filterColumn = [PSColumn psColumnWithTag:[[NSUserDefaults standardUserDefaults] integerForKey:@"FilterColumn"]];
+	filterColumn = [PSColumn psColumnWithTag:[CocoaTopUserDefaults() integerForKey:@"FilterColumn"]];
 	[self searchBarTextDidEndEditing:filter];
-	sortColumn = [PSColumn psColumnWithTag:[[NSUserDefaults standardUserDefaults] integerForKey:@"SortColumn"]];
+	sortColumn = [PSColumn psColumnWithTag:[CocoaTopUserDefaults() integerForKey:@"SortColumn"]];
 	if (!sortColumn) sortColumn = columns[0];
-	sortDescending = [[NSUserDefaults standardUserDefaults] boolForKey:@"SortDescending"];
+	sortDescending = [CocoaTopUserDefaults() boolForKey:@"SortDescending"];
 	header = [GridHeaderView headerWithColumns:columns size:CGSizeMake(self.tableView.bounds.size.width, self.tableView.sectionHeaderHeight)];
 	footer = [GridHeaderView footerWithColumns:columns size:CGSizeMake(self.tableView.bounds.size.width, self.tableView.sectionFooterHeight)];
 	[header sortColumnOld:nil New:sortColumn desc:sortDescending];
@@ -340,7 +340,7 @@
 
 - (void)reappearAllView {
     // When major options change, process list is rebuilt from scratch
-    NSUserDefaults *def = [NSUserDefaults standardUserDefaults];
+    NSUserDefaults *def = CocoaTopUserDefaults();
     NSString *configCheck = [NSString stringWithFormat:@"%d-%@", [def boolForKey:@"ShortenPaths"], [def stringForKey:@"FirstColumnStyle"]];
     if (![configChange isEqualToString:configCheck]) {
         procs = [PSProcArray psProcArrayWithIconSize:self.tableView.rowHeight];
@@ -352,7 +352,7 @@
     if (self.tableView.contentOffset.y < minOffset)
         self.tableView.contentOffset = CGPointMake(0, minOffset);
     // Refresh interval
-    timerInterval = [[NSUserDefaults standardUserDefaults] floatForKey:@"UpdateInterval"];
+    timerInterval = [CocoaTopUserDefaults() floatForKey:@"UpdateInterval"];
     [self refreshProcs:nil];
 }
 
@@ -427,16 +427,16 @@
 
 // Section header/footer will be used as a grid header/footer
 - (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section
-{ return [[NSUserDefaults standardUserDefaults] boolForKey:@"ShowHeader"] && !fullScreen ? header : nil; }
+{ return [CocoaTopUserDefaults() boolForKey:@"ShowHeader"] && !fullScreen ? header : nil; }
 
 - (UIView *)tableView:(UITableView *)tableView viewForFooterInSection:(NSInteger)section
-{ return [[NSUserDefaults standardUserDefaults] boolForKey:@"ShowFooter"] && !fullScreen ? footer : nil; }
+{ return [CocoaTopUserDefaults() boolForKey:@"ShowFooter"] && !fullScreen ? footer : nil; }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section
-{ return [[NSUserDefaults standardUserDefaults] boolForKey:@"ShowHeader"] && !fullScreen ? self.tableView.sectionHeaderHeight : 0; }
+{ return [CocoaTopUserDefaults() boolForKey:@"ShowHeader"] && !fullScreen ? self.tableView.sectionHeaderHeight : 0; }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForFooterInSection:(NSInteger)section
-{ return [[NSUserDefaults standardUserDefaults] boolForKey:@"ShowFooter"] && !fullScreen ? self.tableView.sectionFooterHeight : 0; }
+{ return [CocoaTopUserDefaults() boolForKey:@"ShowFooter"] && !fullScreen ? self.tableView.sectionFooterHeight : 0; }
 
 // Customize the number of sections in the table view.
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView

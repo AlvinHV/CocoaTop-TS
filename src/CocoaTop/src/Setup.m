@@ -19,7 +19,7 @@
 	self = [super initWithStyle:UITableViewStyleGrouped];
 	self.list = list;
 	self.option = option;
-	self.value = [[NSUserDefaults standardUserDefaults] stringForKey:option];
+	self.value = [CocoaTopUserDefaults() stringForKey:option];
 	return self;
 }
 
@@ -62,7 +62,7 @@
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
 	self.value = [tableView cellForRowAtIndexPath:indexPath].textLabel.text;
-	[[NSUserDefaults standardUserDefaults] setObject:self.value forKey:self.option];
+	[CocoaTopUserDefaults() setObject:self.value forKey:self.option];
 	[self.navigationController popViewControllerAnimated:YES];
 }
 
@@ -101,7 +101,7 @@
 - (void)alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex
 {
 	if (buttonIndex == 1) {
-		[[NSUserDefaults standardUserDefaults] removePersistentDomainForName:[[NSBundle mainBundle] bundleIdentifier]];
+		[CocoaTopUserDefaults() removePersistentDomainForName:CocoaTopDefaultsDomain()];
 		[self.tableView reloadData];
 	}
 }
@@ -160,7 +160,7 @@
 {
 	UISwitch *onOff = (UISwitch *)sender;
 	OptionItem *option = optionsList[onOff.tag - 1];
-	[[NSUserDefaults standardUserDefaults] setBool:onOff.on forKey:option.optionKey];
+	[CocoaTopUserDefaults() setBool:onOff.on forKey:option.optionKey];
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
@@ -175,7 +175,7 @@
 	if (option.accessory == [UISwitch class]) {
 		UISwitch *onOff = [[UISwitch alloc] initWithFrame:CGRectZero];
 		[onOff addTarget:self action:@selector(flipSwitch:) forControlEvents:UIControlEventValueChanged];
-		onOff.on = [[NSUserDefaults standardUserDefaults] boolForKey:option.optionKey];
+		onOff.on = [CocoaTopUserDefaults() boolForKey:option.optionKey];
 //		onOff.onTintColor = [UIColor redColor];
 		onOff.tag = indexPath.row + 1;
 		cell.accessoryView = onOff;
@@ -192,12 +192,12 @@
 				label.font = [UIFont systemFontOfSize:16.0];
 				label.textColor = [UIColor grayColor];
 				label.backgroundColor = [UIColor clearColor];
-				label.text = [[NSUserDefaults standardUserDefaults] stringForKey:option.optionKey];
+				label.text = [CocoaTopUserDefaults() stringForKey:option.optionKey];
 				label.tag = indexPath.row + 1;
 				label.autoresizingMask = UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleWidth;
 				[cell.contentView addSubview:label];
 			} else
-				label.text = [[NSUserDefaults standardUserDefaults] stringForKey:option.optionKey];
+				label.text = [CocoaTopUserDefaults() stringForKey:option.optionKey];
 		}
 	}
 	return cell;
