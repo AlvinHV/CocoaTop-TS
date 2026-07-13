@@ -62,11 +62,12 @@
     NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
     NSString *helperPath = [bundlePath stringByAppendingPathComponent:@"CocoaTop-helper"];
     NSLog(@"Loading CocoaTop-helper: %@", helperPath);
-    NSError *error = NULL;
+    NSError *error = nil;
+    BOOL helperFailed = NO;
     #if !TARGET_IPHONE_SIMULATOR
     if (![[RootHelperManager sharedManager] startHelperWithPath: helperPath error: &error]) {
+        helperFailed = YES;
         NSLog(@"Error loading: %@", error);
-        [[UIApplication sharedApplication] performSelector:@selector(suspend)];
     }
     #endif
     
@@ -77,6 +78,21 @@
 	// Set the navigation controller as the window's root view controller and display.
 	self.window.rootViewController = self.navigationController;
 	[self.window makeKeyAndVisible];
+
+	if (helperFailed) {
+		dispatch_async(dispatch_get_main_queue(), ^{
+			NSString *message = error.localizedDescription ?: @"CocoaTop cannot continue without its helper.";
+			UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Helper failed to open"
+				message:message
+				preferredStyle:UIAlertControllerStyleAlert];
+			[alert addAction:[UIAlertAction actionWithTitle:@"OK"
+				style:UIAlertActionStyleDefault
+				handler:^(__unused UIAlertAction *action) {
+					[[UIApplication sharedApplication] performSelector:@selector(suspend)];
+				}]];
+			[self.navigationController presentViewController:alert animated:YES completion:nil];
+		});
+	}
 	return YES;
 }
 /*
