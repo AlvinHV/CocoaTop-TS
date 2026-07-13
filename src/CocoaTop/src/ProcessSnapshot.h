@@ -6,8 +6,6 @@
 
 #include "sys/proc_info.h"
 
-#define COCOATOP_PROCESS_SNAPSHOT_VERSION 1
-
 struct CocoaTopProcessRecord {
 	struct kinfo_proc kinfo;
 	struct proc_taskinfo taskinfo;
@@ -15,10 +13,21 @@ struct CocoaTopProcessRecord {
 };
 
 struct CocoaTopProcessSnapshot {
-	uint32_t version;
 	uint32_t count;
 	uint64_t sample_time;
 	struct CocoaTopProcessRecord records[];
+};
+
+struct CocoaTopThreadRecord {
+	uint64_t thread_id;
+	struct proc_threadinfo info;
+};
+
+struct CocoaTopThreadSnapshot {
+	int32_t error;
+	pid_t pid;
+	uint32_t count;
+	struct CocoaTopThreadRecord records[];
 };
 
 #endif /* ProcessSnapshot_h */

@@ -10,6 +10,7 @@
 #import "sys/libproc.h"
 #import "sys/dyld64.h"
 #import "kern/debug.h"
+#import "RootHelperManager.h"
 #include <dlfcn.h>
 
 #ifndef SYS_stack_snapshot 
@@ -219,35 +220,49 @@ void dump(unsigned char *b, int s)
 		}
 	}
 */
-	task_port_t task;
-    if (_task_for_pid(socks.proc.pid, &task) != KERN_SUCCESS)
-		return EPERM;
-	thread_port_array_t thread_list;
-	unsigned int thread_count;
-	if (task_threads(task, &thread_list, &thread_count) != KERN_SUCCESS) {
-		mach_port_deallocate(mach_task_self(), task);
-		return ENOMEM;
-	}
-	for (unsigned int j = 0; j < thread_count; j++) {
-		struct thread_identifier_info tii = {0};
-		struct thread_basic_info tbi = {{0}};
-		unsigned int info_count = THREAD_IDENTIFIER_INFO_COUNT;
-		thread_info(thread_list[j], THREAD_IDENTIFIER_INFO, (thread_info_t)&tii, &info_count);
-		info_count = THREAD_BASIC_INFO_COUNT;
-		thread_info(thread_list[j], THREAD_BASIC_INFO, (thread_info_t)&tbi, &info_count);
-		if (tii.thread_id) {
+	__block NSInteger result = -EIO;
+	dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+	[[RootHelperManager sharedManager] requestThreadsForPID:socks.proc.pid
+	                                           completion:^(NSString *stdoutString, NSString *stderrString, NSInteger exitCode) {
+		if (exitCode == 0)
+			result = stdoutString.integerValue;
+		dispatch_semaphore_signal(semaphore);
+	}];
+	dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+
+	struct CocoaTopThreadSnapshot *snapshot = [RootHelperManager sharedManager].threadSnapshot;
+	if (result < 0)
+		return (int)-result;
+	if (snapshot->error != 0 || snapshot->pid != socks.proc.pid ||
+	    snapshot->count != (uint32_t)result)
+		return EIO;
+
+	for (uint32_t j = 0; j < snapshot->count; j++) {
+		const struct CocoaTopThreadRecord *record = &snapshot->records[j];
+		if (record->thread_id) {
 			PSSockThreads *sock = (PSSockThreads *)[socks objectPassingTest:^BOOL(PSSockThreads *obj, NSUInteger idx, BOOL *stop) {
-				return obj.tid == tii.thread_id;
+				return obj.tid == record->thread_id;
 			}];
 			if (!sock) {
-				sock = [PSSockThreads psSockWithId:tii.thread_id];
+				sock = [PSSockThreads psSockWithId:record->thread_id];
 				if (sock) [socks.socks addObject:sock];
 			} else if (sock.display != ProcDisplayStarted)
 				sock.display = ProcDisplayUser;
-			sock->tbi = tbi;
-			// Roundup time: 100's of a second
-			sock.ptime = (tbi.system_time.seconds + tbi.user_time.seconds) * 100 + (tbi.system_time.microseconds + tbi.user_time.microseconds + 5000) / 10000;
-			sock.prio = mach_thread_priority(thread_list[j], tbi.policy);
+
+			const struct proc_threadinfo *info = &record->info;
+			memset(&sock->tbi, 0, sizeof(sock->tbi));
+			sock->tbi.user_time.seconds = (integer_t)(info->pth_user_time / NSEC_PER_SEC);
+			sock->tbi.user_time.microseconds = (integer_t)((info->pth_user_time % NSEC_PER_SEC) / NSEC_PER_USEC);
+			sock->tbi.system_time.seconds = (integer_t)(info->pth_system_time / NSEC_PER_SEC);
+			sock->tbi.system_time.microseconds = (integer_t)((info->pth_system_time % NSEC_PER_SEC) / NSEC_PER_USEC);
+			sock->tbi.cpu_usage = info->pth_cpu_usage;
+			sock->tbi.policy = info->pth_policy;
+			sock->tbi.run_state = info->pth_run_state;
+			sock->tbi.flags = info->pth_flags;
+			sock->tbi.sleep_time = info->pth_sleep_time;
+			// proc_threadinfo times are nanoseconds; ptime is hundredths of a second.
+			sock.ptime = (info->pth_user_time + info->pth_system_time + 5000000) / 10000000;
+			sock.prio = info->pth_curpri;
 			switch (sock->tbi.run_state) {
             case TH_STATE_RUNNING:			sock.color = _redColor();break;//sock.color = [UIColor redColor]; break;
             case TH_STATE_UNINTERRUPTIBLE:	sock.color = _orangeColor(); break;//[UIColor orangeColor]; break;
@@ -256,62 +271,14 @@ void dump(unsigned char *b, int s)
 			case TH_STATE_HALTED:			sock.color = [UIColor brownColor]; break;
             default:						sock.color = _grayColor();//[UIColor grayColor];
 			}
-			// Get thread name
-			sock.name = @"-";
-			struct proc_threadinfo pth = {0};
-			proc_pidinfo(socks.proc.pid, PROC_PIDTHREADINFO, tii.thread_handle, &pth, sizeof(pth));
-			if (pth.pth_name[0])
-				sock.name = [NSString stringWithUTF8String:pth.pth_name];
-			// Get dispatch queue name
-			NSString *dispQueue = nil;
-			int bits = socks.proc.flags & P_LP64 ? sizeof(uint64_t) : sizeof(uint32_t);
-			uint64_t addr = tii.dispatch_qaddr;
-			mach_vm_size_t size;
-			if (addr && mach_vm_read_overwrite(task, addr, bits, (mach_vm_address_t)&addr, &size) == KERN_SUCCESS) {
-				NSNumber *dispQueueAddr = [NSNumber numberWithUnsignedLongLong:addr];
-				// Get it from our cache
-				dispQueue = socks.proc.dispQueue[dispQueueAddr];
-				if (!dispQueue) {
-					char buf[256] = {0};
-					if (socks.proc.flags & P_LP64) {
-						// This is just a hard-coded offset to where the name pointer should be, same for all arm64 systems
-						if (addr && mach_vm_read_overwrite(task, addr + 0x78, bits, (mach_vm_address_t)&addr, &size) == KERN_SUCCESS)
-						if (addr && mach_vm_read_overwrite(task, addr, sizeof(buf)-1, (mach_vm_address_t)buf, &size) == KERN_SUCCESS)
-							dispQueue = [NSString stringWithUTF8String:buf];
-					} else {
-						// This is a super-hacky hack which works on all 32 bit iOSes!
-						if (mach_vm_read_overwrite(task, addr, sizeof(buf), (mach_vm_address_t)buf, &size) == KERN_SUCCESS) {
-#if 0
-#if __IPHONE_OS_VERSION_MAX_ALLOWED < __IPHONE_6_0
-							uint64_t addr = (uint64_t)dispatch_queue_get_label((dispatch_queue_t)buf);
-#else
-							uint64_t addr = (uint64_t)dispatch_queue_get_label((__bridge dispatch_queue_t)(void *)buf);
-#endif
-#endif
-                            uint64_t addr;
-                            //if (@available(iOS 6, *)) {
-                                addr = (uint64_t)dispatch_queue_get_label((__bridge dispatch_queue_t)(void *)buf);
-                            //} else {
-                                //addr = (uint64_t)dispatch_queue_get_label((dispatch_queue_t)buf);
-                            //}
-							// addr=buf+0x38 on iOS5
-							if (addr > (uint64_t)buf && addr < (uint64_t)buf + sizeof(buf))
-								dispQueue = [NSString stringWithUTF8String:(char *)addr];
-							// addr=buf[0x3C] on iOS7, addr=buf[0x48] on iOS8
-							else if (addr && mach_vm_read_overwrite(task, addr, sizeof(buf)-1, (mach_vm_address_t)buf, &size) == KERN_SUCCESS)
-								dispQueue = [NSString stringWithUTF8String:buf];
-						}
-					}
-					[socks.proc.dispQueue setObject:dispQueue ? dispQueue : @"" forKey:dispQueueAddr];
-				}
-			}
-			if (dispQueue.length)
-				sock.name = [sock.name stringByAppendingFormat:@" [DQ:%@]", dispQueue];
+			size_t nameLength = strnlen(info->pth_name, sizeof(info->pth_name));
+			sock.name = nameLength ? [[NSString alloc] initWithBytes:info->pth_name
+			                                                  length:nameLength
+			                                                encoding:NSUTF8StringEncoding] : @"-";
+			if (!sock.name)
+				sock.name = @"-";
 		}
-		mach_port_deallocate(mach_task_self(), thread_list[j]);
 	}
-	vm_deallocate(mach_task_self(), (vm_address_t)thread_list, sizeof(*thread_list) * thread_count);
-	mach_port_deallocate(mach_task_self(), task);
 	return 0;
 }
 

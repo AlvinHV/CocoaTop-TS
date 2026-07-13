@@ -18,20 +18,27 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
 @property (assign) int stdinFD;
 @property (assign) int stdoutFD;
 @property (assign) int stderrFD;
+@property (assign) int listRequestFD;
+@property (assign) int listResponseFD;
 
 @property (strong) NSString *shmName;
 @property (assign) int shmFD;
 @property (assign) size_t bufSize;
+@property (strong) NSString *threadShmName;
+@property (assign) int threadShmFD;
+@property (assign) size_t threadBufSize;
 
 @property (strong) dispatch_source_t stdoutSource;
 @property (strong) dispatch_source_t stderrSource;
 @property (strong) dispatch_source_t procSource;
+@property (strong) dispatch_source_t listResponseSource;
 
 @property (strong) NSMutableData  *stdoutBuffer;
-@property (strong) NSMutableData  *stderrBuffer;
+@property (strong) NSMutableData  *listResponseBuffer;
 
 // simple FIFO of pending completions
 @property (strong) NSMutableArray<RHCommandCompletion> *pendingCompletions;
+@property (strong) NSMutableArray<RHCommandCompletion> *pendingProcessListCompletions;
 
 @end
 
@@ -50,7 +57,8 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
     if ((self = [super init])) {
         _pendingCompletions = [NSMutableArray array];
         _stdoutBuffer = [NSMutableData data];
-        _stderrBuffer = [NSMutableData data];
+        _listResponseBuffer = [NSMutableData data];
+        _pendingProcessListCompletions = [NSMutableArray array];
     }
     return self;
 }
@@ -70,6 +78,7 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
         return NO;
     }
     self.bufSize = sizeof(*self.snapshot) + maxproc * sizeof(self.snapshot->records[0]);
+    self.threadBufSize = 4 * 1024 * 1024;
     
     // 2. Create shared memory region
     self.shmName = [NSString stringWithFormat:@"/cocoatop_%d", getpid()];
@@ -86,9 +95,17 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
                                                   userInfo:nil];
         return NO;
     }
+
+    self.threadShmName = [NSString stringWithFormat:@"/cocoatop_threads_%d", getpid()];
+    self.threadShmFD = shm_open(self.threadShmName.UTF8String, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+    if (self.threadShmFD < 0 || ftruncate(self.threadShmFD, self.threadBufSize) < 0) {
+        if (outError) *outError = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+        return NO;
+    }
     
-    int inPipe[2], outPipe[2], errPipe[2];
-    if (pipe(inPipe) || pipe(outPipe) || pipe(errPipe)) {
+    int inPipe[2], outPipe[2], errPipe[2], listRequestPipe[2], listResponsePipe[2];
+    if (pipe(inPipe) || pipe(outPipe) || pipe(errPipe) ||
+        pipe(listRequestPipe) || pipe(listResponsePipe)) {
         if (outError) *outError = [NSError errorWithDomain:NSPOSIXErrorDomain
                                                       code:errno
                                                   userInfo:nil];
@@ -105,15 +122,28 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
                                                   userInfo:nil];
         return NO;
     }
+
+    self.threadSnapshot = mmap(NULL, self.threadBufSize,
+                               PROT_READ | PROT_WRITE,
+                               MAP_SHARED, self.threadShmFD, 0);
+    if (self.threadSnapshot == MAP_FAILED) {
+        if (outError) *outError = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+        return NO;
+    }
     
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);
     posix_spawn_file_actions_adddup2(&actions, inPipe[0], STDIN_FILENO);
+    posix_spawn_file_actions_addclose(&actions, inPipe[0]);
     posix_spawn_file_actions_addclose(&actions, inPipe[1]);
     posix_spawn_file_actions_adddup2(&actions, outPipe[1], STDOUT_FILENO);
+    posix_spawn_file_actions_addclose(&actions, outPipe[1]);
     posix_spawn_file_actions_addclose(&actions, outPipe[0]);
     posix_spawn_file_actions_adddup2(&actions, errPipe[1], STDERR_FILENO);
+    posix_spawn_file_actions_addclose(&actions, errPipe[1]);
     posix_spawn_file_actions_addclose(&actions, errPipe[0]);
+    posix_spawn_file_actions_addclose(&actions, listRequestPipe[1]);
+    posix_spawn_file_actions_addclose(&actions, listResponsePipe[0]);
 
     posix_spawnattr_t attr;
     posix_spawnattr_init(&attr);
@@ -121,10 +151,14 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
     posix_spawnattr_set_persona_uid_np(&attr, 0);
     posix_spawnattr_set_persona_gid_np(&attr, 0);
     
-    // 5. Pass shmFD to helper
-    char bufArg[32];
+    // Pass shared-memory sizes and the dedicated process-list pipe descriptors.
+    char bufArg[32], threadBufArg[32], listRequestArg[16], listResponseArg[16];
     snprintf(bufArg, sizeof(bufArg), "%zu", self.bufSize);
-    char *argv[] = { (char*)[helperPath UTF8String], bufArg ,NULL };
+    snprintf(threadBufArg, sizeof(threadBufArg), "%zu", self.threadBufSize);
+    snprintf(listRequestArg, sizeof(listRequestArg), "%d", listRequestPipe[0]);
+    snprintf(listResponseArg, sizeof(listResponseArg), "%d", listResponsePipe[1]);
+    char *argv[] = { (char*)helperPath.UTF8String, bufArg, threadBufArg,
+                     listRequestArg, listResponseArg, NULL };
     pid_t pid;
     int err = posix_spawn(&pid,
                           [helperPath UTF8String],
@@ -141,17 +175,26 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
                                                   userInfo:nil];
         return NO;
     }
+
+    close(inPipe[0]);
+    close(outPipe[1]);
+    close(errPipe[1]);
+    close(listRequestPipe[0]);
+    close(listResponsePipe[1]);
     
     // 6. Store fds & pid, close unused ends
     self.helperPID = pid;
     self.stdinFD   = inPipe[1];
     self.stdoutFD  = outPipe[0];
     self.stderrFD  = errPipe[0];
+    self.listRequestFD = listRequestPipe[1];
+    self.listResponseFD = listResponsePipe[0];
     self.isRunning = YES;
     
     // 7. Kick off I/O and proc watcher
     [self setupStdoutSource];
     [self setupStderrSource];
+    [self setupListResponseSource];
     [self setupProcWatcher];
     
     return YES;
@@ -167,10 +210,9 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
         if (available == 0) return; // EOF?
         uint8_t buf[50];
         ssize_t r = read(self.stdoutFD, buf, MIN(sizeof(buf), available));
-        NSLog(@"stdout: %s", buf);
         if (r > 0) {
             [self.stdoutBuffer appendBytes:buf length:r];
-            [self checkForLineInBuffer:self.stdoutBuffer isStdout:YES];
+            [self checkForLineInBuffer:self.stdoutBuffer completions:self.pendingCompletions];
         }
     });
     dispatch_resume(self.stdoutSource);
@@ -185,13 +227,28 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
         if (available == 0) return;
         uint8_t buf[100];
         ssize_t r = read(self.stderrFD, buf, MIN(sizeof(buf), available));
-        NSLog(@"stderr: %s", buf);
-        if (r > 0) {
-            [self.stderrBuffer appendBytes:buf length:r];
-            [self checkForLineInBuffer:self.stderrBuffer isStdout:NO];
-        }
+        if (r > 0)
+            NSLog(@"helper stderr: %.*s", (int)r, buf);
     });
     dispatch_resume(self.stderrSource);
+}
+
+- (void)setupListResponseSource {
+    dispatch_queue_t q = dispatch_get_global_queue(QOS_CLASS_UTILITY, 0);
+    self.listResponseSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ,
+                                                      self.listResponseFD, 0, q);
+    dispatch_source_set_event_handler(self.listResponseSource, ^{
+        size_t available = dispatch_source_get_data(self.listResponseSource);
+        if (available == 0) return;
+        uint8_t buf[50];
+        ssize_t r = read(self.listResponseFD, buf, MIN(sizeof(buf), available));
+        if (r > 0) {
+            [self.listResponseBuffer appendBytes:buf length:r];
+            [self checkForLineInBuffer:self.listResponseBuffer
+                           completions:self.pendingProcessListCompletions];
+        }
+    });
+    dispatch_resume(self.listResponseSource);
 }
 
 - (void)setupProcWatcher {
@@ -204,11 +261,23 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
         self.isRunning = NO;
         dispatch_source_cancel(self.stdoutSource);
         dispatch_source_cancel(self.stderrSource);
-        // invoke any pending completions with an error
-        for (RHCommandCompletion cb in self.pendingCompletions) {
+        dispatch_source_cancel(self.listResponseSource);
+        NSArray<RHCommandCompletion> *commandCompletions;
+        @synchronized(self.pendingCompletions) {
+            commandCompletions = [self.pendingCompletions copy];
+            [self.pendingCompletions removeAllObjects];
+        }
+        for (RHCommandCompletion cb in commandCompletions) {
             cb(nil, nil, -1);
         }
-        [self.pendingCompletions removeAllObjects];
+        NSArray<RHCommandCompletion> *processListCompletions;
+        @synchronized(self.pendingProcessListCompletions) {
+            processListCompletions = [self.pendingProcessListCompletions copy];
+            [self.pendingProcessListCompletions removeAllObjects];
+        }
+        for (RHCommandCompletion cb in processListCompletions) {
+            cb(nil, nil, -1);
+        }
         // terminate app
         dispatch_async(dispatch_get_main_queue(), ^{
             NSLog(@"Helper has been terminated!!! Im leaving byee");
@@ -220,39 +289,37 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
     dispatch_resume(self.procSource);
 }
 
-/// Called whenever we see “\n” in the buffer
-- (void)checkForLineInBuffer:(NSMutableData*)buf isStdout:(BOOL)isStdout {
-    const void *bytes = buf.bytes;
-    NSUInteger len = buf.length;
-    for (NSUInteger i = 0; i < len; i++) {
-        if (((char*)bytes)[i] == '\n') {
-            // extract line up to i
-            NSData *lineData = [buf subdataWithRange:NSMakeRange(0, i+1)];
-            NSString *line = [[NSString alloc] initWithData:lineData
-                                                   encoding:NSUTF8StringEncoding];
-            // trim newline
-            line = [line stringByTrimmingCharactersInSet:
-                    [NSCharacterSet newlineCharacterSet]];
-            // remove that chunk from buf
-            [buf replaceBytesInRange:NSMakeRange(0, i+1)
-                           withBytes:NULL length:0];
-            
-            // stderr is diagnostic output; command responses arrive on stdout.
-            if (!isStdout)
+/// Called whenever we see “\n” in a response buffer.
+- (void)checkForLineInBuffer:(NSMutableData*)buf
+                 completions:(NSMutableArray<RHCommandCompletion>*)completions {
+    for (;;) {
+        const char *bytes = buf.bytes;
+        NSUInteger len = buf.length;
+        NSUInteger newline = NSNotFound;
+        for (NSUInteger i = 0; i < len; i++) {
+            if (bytes[i] == '\n') {
+                newline = i;
                 break;
-
-            // fire the next pending completion
-            RHCommandCompletion cb = nil;
-            @synchronized(self.pendingCompletions) {
-                if (self.pendingCompletions.count) {
-                    cb = self.pendingCompletions.firstObject;
-                    [self.pendingCompletions removeObjectAtIndex:0];
-                }
             }
-            if (cb)
-                cb(line, nil, 0);
-            break;
         }
+        if (newline == NSNotFound)
+            break;
+
+        NSData *lineData = [buf subdataWithRange:NSMakeRange(0, newline + 1)];
+        NSString *line = [[NSString alloc] initWithData:lineData
+                                               encoding:NSUTF8StringEncoding];
+        line = [line stringByTrimmingCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+        [buf replaceBytesInRange:NSMakeRange(0, newline + 1) withBytes:NULL length:0];
+
+        RHCommandCompletion cb = nil;
+        @synchronized(completions) {
+            if (completions.count) {
+                cb = completions.firstObject;
+                [completions removeObjectAtIndex:0];
+            }
+        }
+        if (cb)
+            cb(line, nil, 0);
     }
 }
 
@@ -267,14 +334,45 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
     NSString *cmd = command;
     if (![cmd hasSuffix:@"\n"]) cmd = [cmd stringByAppendingString:@"\n"];
     
-    // enqueue callback
+    BOOL writeFailed = NO;
     @synchronized(self.pendingCompletions) {
         [self.pendingCompletions addObject:completion];
+        const char *utf8 = cmd.UTF8String;
+        size_t length = strlen(utf8);
+        writeFailed = write(self.stdinFD, utf8, length) != (ssize_t)length;
+        if (writeFailed)
+            [self.pendingCompletions removeLastObject];
     }
-    
-    // write
-    const char *utf8 = cmd.UTF8String;
-    write(self.stdinFD, utf8, strlen(utf8));
+    if (writeFailed)
+        completion(nil, nil, -1);
+}
+
+- (void)requestProcessListWithCompletion:(RHCommandCompletion)completion
+{
+    if (!self.isRunning) {
+        completion(nil, nil, -1);
+        return;
+    }
+    uint8_t request = 1;
+    BOOL writeFailed = NO;
+    @synchronized(self.pendingProcessListCompletions) {
+        [self.pendingProcessListCompletions addObject:completion];
+        writeFailed = write(self.listRequestFD, &request, sizeof(request)) != sizeof(request);
+        if (writeFailed)
+            [self.pendingProcessListCompletions removeLastObject];
+    }
+    if (writeFailed)
+        completion(nil, nil, -1);
+}
+
+- (void)requestThreadsForPID:(pid_t)pid completion:(RHCommandCompletion)completion
+{
+    [self sendCommand:[NSString stringWithFormat:@"getthreads %d", pid] completion:completion];
+}
+
+- (void)sendSignal:(int)signal toProcess:(pid_t)pid completion:(RHCommandCompletion)completion
+{
+    [self sendCommand:[NSString stringWithFormat:@"kill %d %d", pid, signal] completion:completion];
 }
 
 - (void)stopHelper {
@@ -284,13 +382,19 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
     // cleanup
     dispatch_source_cancel(self.stdoutSource);
     dispatch_source_cancel(self.stderrSource);
+    dispatch_source_cancel(self.listResponseSource);
     dispatch_source_cancel(self.procSource);
     close(self.stdinFD);
     close(self.stdoutFD);
     close(self.stderrFD);
+    close(self.listRequestFD);
+    close(self.listResponseFD);
     munmap(self.snapshot, self.bufSize);
+    munmap(self.threadSnapshot, self.threadBufSize);
     close(self.shmFD);
+    close(self.threadShmFD);
     shm_unlink(self.shmName.UTF8String);
+    shm_unlink(self.threadShmName.UTF8String);
     [[UIApplication sharedApplication] performSelector:@selector(suspend)];
 }
 

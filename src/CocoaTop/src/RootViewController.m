@@ -9,6 +9,7 @@
 #import "Proc.h"
 #import "ProcArray.h"
 #import "AppDelegate.h"
+#import "RootHelperManager.h"
 
 #define NTSTAT_PREQUERY_INTERVAL	0.1
 
@@ -511,15 +512,20 @@
 - (void)tableView:(UITableView *)tableView sendSignal:(int)sig toProcessAtIndexPath:(NSIndexPath *)indexPath
 {
 	PSProc *proc = procs[indexPath.row];
-	// task_for_pid(mach_task_self(), pid, &task)
-	// task_terminate(task)
-	if (kill(proc.pid, sig)) {
-		NSString *msg = [NSString stringWithFormat:@"Error %d while terminating app", errno];
-		[[[UIAlertView alloc] initWithTitle:proc.name message:msg delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil] show];
-	}
-	// Refresh immediately to show process termination
+	NSString *processName = proc.name;
 	tableView.editing = NO;
-	[timer performSelector:@selector(fire) withObject:nil afterDelay:.1f];
+	[[RootHelperManager sharedManager] sendSignal:sig toProcess:proc.pid
+	                                  completion:^(NSString *stdoutString, NSString *stderrString, NSInteger exitCode) {
+		NSInteger error = exitCode < 0 ? EIO : stdoutString.integerValue;
+		dispatch_async(dispatch_get_main_queue(), ^{
+			if (error) {
+				NSString *msg = [NSString stringWithFormat:@"Error %ld while terminating app", (long)error];
+				[[[UIAlertView alloc] initWithTitle:processName message:msg delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil] show];
+			}
+			// Refresh immediately to show process termination.
+			[self->timer performSelector:@selector(fire) withObject:nil afterDelay:.1f];
+		});
+	}];
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForDeleteConfirmationButtonForRowAtIndexPath:(NSIndexPath *)indexPath

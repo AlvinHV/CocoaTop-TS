@@ -23,14 +23,12 @@ int sort_procs_by_pid(const void *p1, const void *p2)
     
     dispatch_semaphore_t sema = dispatch_semaphore_create(0);
     
-    [[RootHelperManager sharedManager] sendCommand: @"getprocs" completion:^(NSString * _Nullable stdoutString,
-                                                                             NSString * _Nullable stderrString,
-                                                                             NSInteger exitCode) {
+    [[RootHelperManager sharedManager] requestProcessListWithCompletion:^(NSString * _Nullable stdoutString,
+                                                                          NSString * _Nullable stderrString,
+                                                                          NSInteger exitCode) {
         struct CocoaTopProcessSnapshot *snapshot = [RootHelperManager sharedManager].snapshot;
         NSInteger value = [stdoutString integerValue];
-        if (exitCode == 0 && value >= 0 &&
-            snapshot->version == COCOATOP_PROCESS_SNAPSHOT_VERSION &&
-            snapshot->count == (uint32_t)value) {
+        if (exitCode == 0 && value >= 0 && snapshot->count == (uint32_t)value) {
             self->count = snapshot->count;
             self->records = snapshot->records;
             self->sampleTime = snapshot->sample_time;
