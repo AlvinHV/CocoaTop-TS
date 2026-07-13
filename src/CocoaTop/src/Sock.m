@@ -855,48 +855,30 @@ static NSString *psPortObjectTypeName(natural_t objectType)
 
 @implementation PSSockModules
 
-- (instancetype)initWithRwpi:(struct proc_regionwithpathinfo *)rwpi
+- (instancetype)initWithModuleRecord:(const struct CocoaTopModuleRecord *)record kernel:(BOOL)kernel
 {
-	if (!rwpi->prp_vip.vip_path[0] && !rwpi->prp_vip.vip_vi.vi_stat.vst_dev && !rwpi->prp_vip.vip_vi.vi_stat.vst_ino)
+	const struct proc_regionwithpathinfo *rwpi = &record->region;
+	if (!rwpi->prp_vip.vip_path[0] && !record->identifier[0] &&
+	    !rwpi->prp_vip.vip_vi.vi_stat.vst_dev &&
+	    !rwpi->prp_vip.vip_vi.vi_stat.vst_ino)
 		return nil;
 	if (self = [super init]) {
-		self.display = ProcDisplayStarted;
+		self.display = kernel ? ProcDisplayUser : ProcDisplayStarted;
 		self.name = rwpi->prp_vip.vip_path[0] ? [PSSymLink simplifyPathName:[NSString stringWithUTF8String:rwpi->prp_vip.vip_path]] : @"<none>";
-		self.bundle = [self.name lastPathComponent];
+		self.bundle = record->identifier[0] ? [NSString stringWithUTF8String:record->identifier] : [self.name lastPathComponent];
 		self.addr = rwpi->prp_prinfo.pri_address;
 		self.size = rwpi->prp_prinfo.pri_size;
 		self.ref = rwpi->prp_prinfo.pri_ref_count;
 		self.dev = rwpi->prp_vip.vip_vi.vi_stat.vst_dev;
 		self.ino = rwpi->prp_vip.vip_vi.vi_stat.vst_ino;
-		self.color = self.dev && self.ino ? _labelColor()/*[UIColor blackColor]*/ : _grayColor()/*[UIColor grayColor]*/;
+		self.color = kernel || (self.dev && self.ino) ? _labelColor()/*[UIColor blackColor]*/ : _grayColor()/*[UIColor grayColor]*/;
 	}
 	return self;
 }
 
-+ (instancetype)psSockWithRwpi:(struct proc_regionwithpathinfo *)rwpi
++ (instancetype)psSockWithModuleRecord:(const struct CocoaTopModuleRecord *)record kernel:(BOOL)kernel
 {
-	return [[PSSockModules alloc] initWithRwpi:rwpi];
-}
-
-- (instancetype)initWithDict:(NSDictionary *)dict 
-{
-	if (self = [super init]) {
-		self.display = ProcDisplayUser;
-		self.name = dict[@"OSBundleExecutablePath"];
-		self.addr = [dict[@"OSBundleLoadAddress"] longLongValue] & 0xffffffffffffLL;
-		self.size = [dict[@"OSBundleLoadSize"] longLongValue];
-		self.ref = [dict[@"OSBundleRetainCount"] longValue];
-//		self.dev = [dict[@"OSBundleLoadTag"] longValue];
-		self.color = self.name ? _labelColor()/*[UIColor blackColor]*/ : _grayColor()/*[UIColor grayColor]*/;
-		self.bundle = dict[@"CFBundleIdentifier"];
-		if (!self.name) self.name = self.bundle;
-	}
-	return self;
-}
-
-+ (instancetype)psSockWithDict:(NSDictionary *)dict 
-{
-	return [[PSSockModules alloc] initWithDict:dict];
+	return [[PSSockModules alloc] initWithModuleRecord:record kernel:kernel];
 }
 
 - (NSString *)description
@@ -904,31 +886,8 @@ static NSString *psPortObjectTypeName(natural_t objectType)
 	return self.bundle;
 }
 
-CFDictionaryRef (*OSKextCopyLoadedKextInfo)(CFArrayRef kextIdentifiers, CFArrayRef infoKeys);
-
 + (int)refreshArray:(PSSockArray *)socks
 {
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        OSKextCopyLoadedKextInfo = dlsym(nil, "_OSKextCopyLoadedKextInfo");
-    });
-    
-	// For the kernel task we will show loaded kernel extensions
-	if (socks.proc.pid == 0) {
-		if (!socks.objects) {
-			// CFBundleVersion OSBundleStarted
-			NSArray *infoKeys = @[@"CFBundleIdentifier", @"OSBundleExecutablePath", @"OSBundleLoadAddress", @"OSBundleLoadSize", @"OSBundleLoadTag", @"OSBundleRetainCount"];
-			NSDictionary *kextDict = (__bridge NSDictionary*)OSKextCopyLoadedKextInfo(0, (__bridge CFArrayRef)infoKeys);
-			[kextDict enumerateKeysAndObjectsUsingBlock: ^void(NSString *key, NSDictionary *kext, BOOL *stop) {
-				[socks.socks addObject:[PSSockModules psSockWithDict:kext]];
-			}];
-			socks.objects = [NSMutableDictionary dictionaryWithCapacity:1];
-		} else {
-			[socks setAllDisplayed:ProcDisplayUser];
-		}
-		return 0;
-	}
-
 	__block NSInteger result = -EIO;
 	dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
 	[[RootHelperManager sharedManager] requestModulesForPID:socks.proc.pid
@@ -947,12 +906,13 @@ CFDictionaryRef (*OSKextCopyLoadedKextInfo)(CFArrayRef kextIdentifiers, CFArrayR
 		return EIO;
 
 	for (uint32_t i = 0; i < snapshot->module_count; i++) {
-		struct proc_regionwithpathinfo *region = &snapshot->modules[i].region;
+		struct CocoaTopModuleRecord *record = &snapshot->modules[i];
+		struct proc_regionwithpathinfo *region = &record->region;
 		mach_vm_address_t address = region->prp_prinfo.pri_address;
 		PSSockModules *sock = (PSSockModules *)[socks objectPassingTest:^BOOL(PSSockModules *obj, NSUInteger idx, BOOL *stop) {
 			return obj.addr == address;
 		}];
-		PSSockModules *updated = [PSSockModules psSockWithRwpi:region];
+		PSSockModules *updated = [PSSockModules psSockWithModuleRecord:record kernel:snapshot->pid == 0];
 		if (!updated)
 			continue;
 		if (!sock) {

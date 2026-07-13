@@ -40,6 +40,8 @@
     <true/>
     <key>com.apple.private.memorystatus</key>
     <true/>
+    <key>com.apple.private.kernel.get-kext-info</key>
+    <true/>
     <key>com.apple.private.thread-set-state</key>
     <true/>
     <key>com.apple.private.set-exception-port</key>

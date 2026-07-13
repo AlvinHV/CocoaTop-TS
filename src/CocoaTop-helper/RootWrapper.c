@@ -15,6 +15,7 @@
 #include <mach/mach_time.h>
 #include <mach/task_info.h>
 #include <mach/vm_prot.h>
+#include <CoreFoundation/CoreFoundation.h>
 
 #include "../CocoaTop/src/ProcessSnapshot.h"
 
@@ -868,6 +869,7 @@ static ssize_t get_region_module_list(struct CocoaTopDetailSnapshot *snapshot, s
                     errno = ENOSPC;
                     return -1;
                 }
+                memset(&snapshot->modules[index], 0, sizeof(snapshot->modules[index]));
                 snapshot->modules[index].region = region;
                 snapshot->modules[index].executable = 0;
                 snapshot->module_count++;
@@ -906,7 +908,159 @@ static ssize_t get_region_module_list(struct CocoaTopDetailSnapshot *snapshot, s
     return output_count;
 }
 
+typedef CFDictionaryRef (*copy_loaded_kext_info_fn)(CFArrayRef kextIdentifiers,
+                                                     CFArrayRef infoKeys);
+
+static int copy_cf_string(CFTypeRef value, char *output, size_t output_size) {
+    if (!value || CFGetTypeID(value) != CFStringGetTypeID() || !output_size)
+        return -1;
+    if (!CFStringGetCString((CFStringRef)value, output, (CFIndex)output_size,
+                            kCFStringEncodingUTF8))
+        return -1;
+    output[output_size - 1] = '\0';
+    return 0;
+}
+
+static uint64_t cf_uint64(CFTypeRef value) {
+    if (!value)
+        return 0;
+    if (CFGetTypeID(value) == CFNumberGetTypeID()) {
+        int64_t number = 0;
+        if (CFNumberGetValue((CFNumberRef)value, kCFNumberSInt64Type, &number))
+            return (uint64_t)number;
+    } else if (CFGetTypeID(value) == CFStringGetTypeID()) {
+        char string[64];
+        if (copy_cf_string(value, string, sizeof(string)) == 0)
+            return strtoull(string, NULL, 0);
+    }
+    return 0;
+}
+
+static ssize_t get_kernel_module_list(struct CocoaTopDetailSnapshot *snapshot,
+                                      size_t bufSize) {
+    snapshot->error = 0;
+    snapshot->pid = 0;
+    snapshot->module_count = 0;
+    snapshot->sample_time = mach_absolute_time();
+    if (bufSize < sizeof(*snapshot)) {
+        snapshot->error = ENOSPC;
+        errno = ENOSPC;
+        return -1;
+    }
+
+    copy_loaded_kext_info_fn copy_loaded_kext_info =
+        (copy_loaded_kext_info_fn)dlsym(RTLD_DEFAULT,
+                                        "OSKextCopyLoadedKextInfo");
+    if (!copy_loaded_kext_info) {
+        snapshot->error = ENOTSUP;
+        errno = ENOTSUP;
+        return -1;
+    }
+
+    const void *requested_values[] = {
+        CFSTR("CFBundleIdentifier"),
+        CFSTR("OSBundleExecutablePath"),
+        CFSTR("OSBundleLoadAddress"),
+        CFSTR("OSBundleLoadSize"),
+        CFSTR("OSBundleLoadTag"),
+        CFSTR("OSBundleRetainCount")
+    };
+    CFArrayRef requested_keys = CFArrayCreate(kCFAllocatorDefault,
+                                               requested_values,
+                                               sizeof(requested_values) /
+                                                   sizeof(requested_values[0]),
+                                               &kCFTypeArrayCallBacks);
+    if (!requested_keys) {
+        snapshot->error = ENOMEM;
+        errno = ENOMEM;
+        return -1;
+    }
+
+    CFDictionaryRef kext_info = copy_loaded_kext_info(NULL, requested_keys);
+    CFRelease(requested_keys);
+    if (!kext_info || CFGetTypeID(kext_info) != CFDictionaryGetTypeID()) {
+        if (kext_info)
+            CFRelease(kext_info);
+        snapshot->error = EPERM;
+        errno = EPERM;
+        return -1;
+    }
+
+    CFIndex kext_count = CFDictionaryGetCount(kext_info);
+    size_t capacity = (bufSize - sizeof(*snapshot)) /
+                      sizeof(snapshot->modules[0]);
+    if (kext_count < 0 || (uint64_t)kext_count > capacity) {
+        CFRelease(kext_info);
+        snapshot->error = ENOSPC;
+        errno = ENOSPC;
+        return -1;
+    }
+    if (!kext_count) {
+        CFRelease(kext_info);
+        return 0;
+    }
+
+    const void **keys = calloc((size_t)kext_count, sizeof(*keys));
+    const void **values = calloc((size_t)kext_count, sizeof(*values));
+    if (!keys || !values) {
+        free(keys);
+        free(values);
+        CFRelease(kext_info);
+        snapshot->error = ENOMEM;
+        errno = ENOMEM;
+        return -1;
+    }
+    CFDictionaryGetKeysAndValues(kext_info, keys, values);
+
+    uint32_t output_count = 0;
+    for (CFIndex i = 0; i < kext_count; i++) {
+        CFTypeRef value = values[i];
+        if (!value || CFGetTypeID(value) != CFDictionaryGetTypeID())
+            continue;
+        CFDictionaryRef kext = (CFDictionaryRef)value;
+        struct CocoaTopModuleRecord *record = &snapshot->modules[output_count];
+        memset(record, 0, sizeof(*record));
+
+        copy_cf_string(CFDictionaryGetValue(kext,
+                                             CFSTR("CFBundleIdentifier")),
+                       record->identifier, sizeof(record->identifier));
+        copy_cf_string(CFDictionaryGetValue(kext,
+                                             CFSTR("OSBundleExecutablePath")),
+                       record->region.prp_vip.vip_path,
+                       sizeof(record->region.prp_vip.vip_path));
+        if (!record->region.prp_vip.vip_path[0] && record->identifier[0])
+            strlcpy(record->region.prp_vip.vip_path, record->identifier,
+                    sizeof(record->region.prp_vip.vip_path));
+        if (!record->region.prp_vip.vip_path[0])
+            continue;
+
+        record->region.prp_prinfo.pri_address =
+            cf_uint64(CFDictionaryGetValue(kext,
+                                            CFSTR("OSBundleLoadAddress"))) &
+            0x0000ffffffffffffULL;
+        record->region.prp_prinfo.pri_size =
+            cf_uint64(CFDictionaryGetValue(kext,
+                                            CFSTR("OSBundleLoadSize")));
+        uint64_t retain_count =
+            cf_uint64(CFDictionaryGetValue(kext,
+                                            CFSTR("OSBundleRetainCount")));
+        record->region.prp_prinfo.pri_ref_count =
+            retain_count > UINT32_MAX ? UINT32_MAX : (uint32_t)retain_count;
+        record->executable = 1;
+        output_count++;
+    }
+
+    free(keys);
+    free(values);
+    CFRelease(kext_info);
+    snapshot->module_count = output_count;
+    return output_count;
+}
+
 static ssize_t get_module_list(struct CocoaTopDetailSnapshot *snapshot, size_t bufSize, pid_t pid) {
+    if (pid == 0)
+        return get_kernel_module_list(snapshot, bufSize);
+
     ssize_t count = get_dyld_module_list(snapshot, bufSize, pid);
     if (count >= 0)
         return count;

@@ -79,6 +79,7 @@ struct CocoaTopPortSnapshot {
 struct CocoaTopModuleRecord {
 	struct proc_regionwithpathinfo region;
 	uint8_t executable;
+	char identifier[256];
 };
 
 struct CocoaTopDetailSnapshot {

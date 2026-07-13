@@ -4,6 +4,7 @@ OUTDIR ?= bin
 CC      = xcrun -sdk iphoneos cc -arch arm64
 LDID    = ldid
 CFLAGS  = -Wall
+FRAMEWORKS = -framework CoreFoundation -framework IOKit
 
 .PHONY: clean all 
 
@@ -20,7 +21,7 @@ $(OUTDIR):
 	mkdir -p $(OUTDIR)
 
 $(OUTDIR)/$(BINARY): RootWrapper.c | $(OUTDIR)
-	$(CC) -o $@ $^ $(CFLAGS)
+	$(CC) -o $@ $^ $(CFLAGS) $(FRAMEWORKS)
 	$(LDID) -SEnt.plist $@
 
 clean:
