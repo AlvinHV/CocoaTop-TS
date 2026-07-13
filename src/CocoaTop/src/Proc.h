@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <mach/mach_types.h>
 #import "sys/resource.h"
+#import "sys/proc_info.h"
 #import <sys/sysctl.h>
 #define PRIVATE
 #import "Compat.h"
@@ -72,6 +73,8 @@ typedef struct PSCounts {
 @property (assign) unsigned int ports;
 @property (assign) unsigned int files;
 @property (assign) unsigned int socks;
+@property (assign) uint64_t taskTotalTime;
+@property (assign) uint64_t taskSampleTime;
 @property (strong) NSString *name;
 @property (strong) NSString *executable;
 @property (strong) NSString *args;
@@ -84,6 +87,7 @@ typedef struct PSCounts {
 + (instancetype)psProcWithKinfo:(struct kinfo_proc *)ki iconSize:(CGFloat)size;
 - (void)update;
 - (void)updateWithKinfo:(struct kinfo_proc *)ki;
+- (void)updateWithTaskInfo:(const struct proc_taskinfo *)taskinfo sampleTime:(uint64_t)sampleTime;
 @end
 
 proc_state_t mach_state_order(struct thread_basic_info *tbi);

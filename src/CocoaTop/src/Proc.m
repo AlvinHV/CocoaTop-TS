@@ -8,6 +8,7 @@
 #import "AppIcon.h"
 #import "sys/proc_info.h"
 #import "sys/libproc.h"
+#import <limits.h>
 
 @implementation PSProc
 
@@ -138,6 +139,42 @@ unsigned int mach_thread_priority(thread_t thread, policy_t policy)
 	if (ki->kp_proc.p_stat == SZOMB) self.state = ProcStateZombie;
 //	self.moredata = [NSString stringWithFormat:@"%x %x %x", ki->kp_proc.p_xstat, ki->kp_proc.p_acflag, ki->kp_proc.sigwait];
 	[self update];
+}
+
+- (void)updateWithTaskInfo:(const struct proc_taskinfo *)taskinfo sampleTime:(uint64_t)sampleTime
+{
+	uint64_t totalTime = taskinfo->pti_total_user + taskinfo->pti_total_system;
+	BOOL hadTaskInfo = self.taskSampleTime != 0;
+	if (hadTaskInfo && sampleTime > self.taskSampleTime && totalTime >= self.taskTotalTime) {
+		uint64_t timeDelta = totalTime - self.taskTotalTime;
+		uint64_t sampleDelta = sampleTime - self.taskSampleTime;
+		double scaledCPU = (double)timeDelta * 1000.0 / (double)sampleDelta;
+		self.pcpu = scaledCPU < UINT_MAX ? (unsigned int)(scaledCPU + 0.5) : UINT_MAX;
+	} else {
+		self.pcpu = 0;
+	}
+	self.taskTotalTime = totalTime;
+	self.taskSampleTime = sampleTime;
+
+	basic.virtual_size = taskinfo->pti_virtual_size;
+	basic.resident_size = taskinfo->pti_resident_size;
+	self.ptime = mach_time_to_milliseconds(totalTime) / 10;
+	self.threads = taskinfo->pti_threadnum;
+	self.prio = taskinfo->pti_priority;
+
+	events.faults = taskinfo->pti_faults;
+	events.pageins = taskinfo->pti_pageins;
+	events.cow_faults = taskinfo->pti_cow_faults;
+	events.messages_sent = taskinfo->pti_messages_sent;
+	events.messages_received = taskinfo->pti_messages_received;
+	events.syscalls_mach = taskinfo->pti_syscalls_mach;
+	events.syscalls_unix = taskinfo->pti_syscalls_unix;
+	events.csw = taskinfo->pti_csw;
+	if (!hadTaskInfo)
+		memcpy(&events_prev, &events, sizeof(events_prev));
+
+	if (self.state != ProcStateDebugging && self.state != ProcStateZombie)
+		self.state = taskinfo->pti_numrunning > 0 ? ProcStateRunning : ProcStateSleeping;
 }
 
 - (void)update

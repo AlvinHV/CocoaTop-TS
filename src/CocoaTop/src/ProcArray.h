@@ -1,11 +1,13 @@
 #import "Proc.h"
 #import "Column.h"
 #import "NetArray.h"
+#import "ProcessSnapshot.h"
 
 @interface PSProcInfo : NSObject
 {
-@public struct kinfo_proc *kp;
+@public struct CocoaTopProcessRecord *records;
 @public size_t count;
+@public uint64_t sampleTime;
 }
 + (instancetype)psProcInfoSort:(BOOL)sort;
 @end

@@ -546,7 +546,7 @@ void dump(unsigned char *b, int s)
 	struct proc_fdinfo *fdinfo = 0;
 	size_t bufSize = 0, curBufSize = 0;
 	for (int i = 0; i < procs->count; i++) {
-		struct extern_proc *ep = &procs->kp[i].kp_proc;
+		struct extern_proc *ep = &procs->records[i].kinfo.kp_proc;
 		bufSize = proc_pidinfo(ep->p_pid, PROC_PIDLISTFDS, 0, 0, 0);
 		if (bufSize <= 0)
 			continue;
@@ -844,7 +844,7 @@ const char *port_types[] = {"","(thread)","(task)","(host)","(host priv)","(proc
 
 	PSProcInfo *procs = [PSProcInfo psProcInfoSort:YES];
 	for (int i = 0; i < procs->count; i++) {
-		struct extern_proc *ep = &procs->kp[i].kp_proc;
+		struct extern_proc *ep = &procs->records[i].kinfo.kp_proc;
 		if (ep->p_pid != socks.proc.pid) {
 			// Get process ports
 			PSPortInfo *ports = [PSPortInfo psPortInfoForPid:ep->p_pid];

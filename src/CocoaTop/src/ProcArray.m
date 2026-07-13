@@ -9,42 +9,39 @@
 @implementation PSProcInfo
 int sort_procs_by_pid(const void *p1, const void *p2)
 {
-	pid_t kp1 = ((struct kinfo_proc *)p1)->kp_proc.p_pid, kp2 = ((struct kinfo_proc *)p2)->kp_proc.p_pid;
+	pid_t kp1 = ((struct CocoaTopProcessRecord *)p1)->kinfo.kp_proc.p_pid;
+	pid_t kp2 = ((struct CocoaTopProcessRecord *)p2)->kinfo.kp_proc.p_pid;
 	return kp1 == kp2 ? 0 : kp1 > kp2 ? 1 : -1;
 }
 
 - (instancetype)initProcInfoSort:(BOOL)sort
 {
-    self = [super init];
-    self->kp = 0;
-    self->count = 0;
+	self = [super init];
+	self->records = 0;
+	self->count = 0;
+	self->sampleTime = 0;
     
     dispatch_semaphore_t sema = dispatch_semaphore_create(0);
     
     [[RootHelperManager sharedManager] sendCommand: @"getprocs" completion:^(NSString * _Nullable stdoutString,
                                                                              NSString * _Nullable stderrString,
                                                                              NSInteger exitCode) {
+        struct CocoaTopProcessSnapshot *snapshot = [RootHelperManager sharedManager].snapshot;
         NSInteger value = [stdoutString integerValue];
-        self->count = value;
-        self->kp = [[RootHelperManager sharedManager]kp];
+        if (exitCode == 0 && value >= 0 &&
+            snapshot->version == COCOATOP_PROCESS_SNAPSHOT_VERSION &&
+            snapshot->count == (uint32_t)value) {
+            self->count = snapshot->count;
+            self->records = snapshot->records;
+            self->sampleTime = snapshot->sample_time;
+        }
         dispatch_semaphore_signal(sema);
     }];
     
     dispatch_semaphore_wait(sema, DISPATCH_TIME_FOREVER);
 
-    size_t bufSize = self->count * sizeof(struct kinfo_proc);
-
-	self->count = bufSize / sizeof(struct kinfo_proc);
 	if (sort)
-		qsort(self->kp, self->count, sizeof(*kp), sort_procs_by_pid);
-    if (@available(iOS 11, *)) {
-    } else if (@available(iOS 10, *)) {
-        if (self->kp[self->count - 1].kp_proc.p_pid == 1) {
-                static int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, 0 };
-                size_t length = sizeof(struct kinfo_proc);
-                sysctl(mib, 4, &self->kp[self->count++], &length, NULL, 0);
-        }
-    }
+		qsort(self->records, self->count, sizeof(*self->records), sort_procs_by_pid);
 	return self;
 }
 
@@ -120,15 +117,17 @@ int sort_procs_by_pid(const void *p1, const void *p2)
 	PSProcInfo *procs = [PSProcInfo psProcInfoSort:NO];
 
 	for (int i = 0; i < procs->count; i++) {
-        struct kinfo_proc kp = procs->kp[i];
-		PSProc *proc = [self procForPid:procs->kp[i].kp_proc.p_pid];
+		struct CocoaTopProcessRecord *record = &procs->records[i];
+		PSProc *proc = [self procForPid:record->kinfo.kp_proc.p_pid];
 		if (!proc) {
-			proc = [PSProc psProcWithKinfo:&procs->kp[i] iconSize:self.iconSize];
+			proc = [PSProc psProcWithKinfo:&record->kinfo iconSize:self.iconSize];
 			[self.procs addObject:proc];
 		} else {
-			[proc updateWithKinfo:&procs->kp[i]];
+			[proc updateWithKinfo:&record->kinfo];
 			proc.display = ProcDisplayUser;
 		}
+		if (record->taskinfo_valid)
+			[proc updateWithTaskInfo:&record->taskinfo sampleTime:procs->sampleTime];
 		// Compute totals
 		if (proc.pid) self.totalCpu += proc.pcpu;	// Kernel gets all idle CPU time
 		if (proc.uid == mobileuid) self.mobileCount++;

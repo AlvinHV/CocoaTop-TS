@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import "ProcessSnapshot.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -8,7 +9,7 @@ typedef void(^RHCommandCompletion)(NSString * _Nullable stdoutString,
 
 @interface RootHelperManager : NSObject
 
-@property (assign) struct kinfo_proc *kp;
+@property (assign) struct CocoaTopProcessSnapshot *snapshot;
 
 + (instancetype)sharedManager;
 

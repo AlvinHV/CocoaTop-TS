@@ -55,7 +55,7 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
     return self;
 }
 
-// Launch helper with shared-memory FD; manager will allocate a local kinfo_proc buffer
+// Launch helper with a shared-memory process snapshot buffer.
 - (BOOL)startHelperWithPath:(NSString*)helperPath
                       error:(NSError**)outError
 {
@@ -69,7 +69,7 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
                                                      userInfo:nil];
         return NO;
     }
-    self.bufSize = maxproc * sizeof(*self.kp);
+    self.bufSize = sizeof(*self.snapshot) + maxproc * sizeof(self.snapshot->records[0]);
     
     // 2. Create shared memory region
     self.shmName = [NSString stringWithFormat:@"/cocoatop_%d", getpid()];
@@ -96,10 +96,10 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
     }
     
     // 3. mmap local mapping for reads (optional)
-    self.kp = mmap(NULL, self.bufSize,
-                   PROT_READ | PROT_WRITE,
-                   MAP_SHARED, self.shmFD, 0);
-    if (self.kp == MAP_FAILED) {
+    self.snapshot = mmap(NULL, self.bufSize,
+                         PROT_READ | PROT_WRITE,
+                         MAP_SHARED, self.shmFD, 0);
+    if (self.snapshot == MAP_FAILED) {
         if (outError) *outError = [NSError errorWithDomain:NSPOSIXErrorDomain
                                                       code:errno
                                                   userInfo:nil];
@@ -122,7 +122,7 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
     posix_spawnattr_set_persona_gid_np(&attr, 0);
     
     // 5. Pass shmFD to helper
-    char bufArg[8];
+    char bufArg[32];
     snprintf(bufArg, sizeof(bufArg), "%zu", self.bufSize);
     char *argv[] = { (char*)[helperPath UTF8String], bufArg ,NULL };
     pid_t pid;
@@ -237,6 +237,10 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
             [buf replaceBytesInRange:NSMakeRange(0, i+1)
                            withBytes:NULL length:0];
             
+            // stderr is diagnostic output; command responses arrive on stdout.
+            if (!isStdout)
+                break;
+
             // fire the next pending completion
             RHCommandCompletion cb = nil;
             @synchronized(self.pendingCompletions) {
@@ -245,13 +249,8 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
                     [self.pendingCompletions removeObjectAtIndex:0];
                 }
             }
-            if (cb) {
-                if (isStdout) {
-                    cb(line, nil, 0);
-                } else {
-                    cb(nil, line, 0);
-                }
-            }
+            if (cb)
+                cb(line, nil, 0);
             break;
         }
     }
@@ -289,7 +288,7 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
     close(self.stdinFD);
     close(self.stdoutFD);
     close(self.stderrFD);
-    munmap(self.kp, self.bufSize);
+    munmap(self.snapshot, self.bufSize);
     close(self.shmFD);
     shm_unlink(self.shmName.UTF8String);
     [[UIApplication sharedApplication] performSelector:@selector(suspend)];
