@@ -2,6 +2,7 @@
 #import <mach/mach_types.h>
 #import "sys/resource.h"
 #import "sys/proc_info.h"
+#import "ProcessSnapshot.h"
 #import <sys/sysctl.h>
 #define PRIVATE
 #import "Compat.h"
@@ -88,6 +89,7 @@ typedef struct PSCounts {
 - (void)update;
 - (void)updateWithKinfo:(struct kinfo_proc *)ki;
 - (void)updateWithTaskInfo:(const struct proc_taskinfo *)taskinfo sampleTime:(uint64_t)sampleTime;
+- (void)updateWithProcessMetrics:(const struct CocoaTopProcessMetrics *)metrics sampleTime:(uint64_t)sampleTime;
 @end
 
 proc_state_t mach_state_order(struct thread_basic_info *tbi);

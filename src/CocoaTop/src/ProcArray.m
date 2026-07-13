@@ -124,8 +124,7 @@ int sort_procs_by_pid(const void *p1, const void *p2)
 			[proc updateWithKinfo:&record->kinfo];
 			proc.display = ProcDisplayUser;
 		}
-		if (record->taskinfo_valid)
-			[proc updateWithTaskInfo:&record->taskinfo sampleTime:procs->sampleTime];
+		[proc updateWithProcessMetrics:&record->metrics sampleTime:procs->sampleTime];
 		// Compute totals
 		if (proc.pid) self.totalCpu += proc.pcpu;	// Kernel gets all idle CPU time
 		if (proc.uid == mobileuid) self.mobileCount++;

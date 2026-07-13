@@ -158,6 +158,7 @@ unsigned int mach_thread_priority(thread_t thread, policy_t policy)
 
 	basic.virtual_size = taskinfo->pti_virtual_size;
 	basic.resident_size = taskinfo->pti_resident_size;
+	basic.policy = taskinfo->pti_policy;
 	self.ptime = mach_time_to_milliseconds(totalTime) / 10;
 	self.threads = taskinfo->pti_threadnum;
 	self.prio = taskinfo->pti_priority;
@@ -177,29 +178,54 @@ unsigned int mach_thread_priority(thread_t thread, policy_t policy)
 		self.state = taskinfo->pti_numrunning > 0 ? ProcStateRunning : ProcStateSleeping;
 }
 
+- (void)updateWithProcessMetrics:(const struct CocoaTopProcessMetrics *)metrics sampleTime:(uint64_t)sampleTime
+{
+	if (metrics->taskinfo_valid)
+		[self updateWithTaskInfo:&metrics->taskinfo sampleTime:sampleTime];
+	if (metrics->rusage_valid) {
+		rusage = metrics->rusage;
+		if (!rusage_prev.ri_proc_start_abstime)
+			rusage_prev = rusage;
+		if (!basic.resident_size)
+			basic.resident_size = rusage.ri_resident_size;
+		if (!self.ptime)
+			self.ptime = mach_time_to_milliseconds(rusage.ri_user_time + rusage.ri_system_time) / 10;
+	}
+	if (metrics->port_count_valid)
+		self.ports = metrics->port_count;
+	if (metrics->fd_count_valid) {
+		self.files = metrics->file_count;
+		self.socks = metrics->socket_count;
+	}
+}
+
 - (void)update
 {
 	// Mach task info
 	[self updateMachInfo];
 	// Open files count
-	self.files = self.socks = 0;
 	int bufSize = proc_pidinfo(self.pid, PROC_PIDLISTFDS, 0, 0, 0);
 	if (bufSize > 0) {
 		bufSize *= 2;
 		struct proc_fdinfo *fdinfo = (struct proc_fdinfo *)malloc(bufSize);
 		if (fdinfo) {
 			bufSize = proc_pidinfo(self.pid, PROC_PIDLISTFDS, 0, fdinfo, bufSize);
-			if (bufSize > 0)
+			if (bufSize > 0) {
+				unsigned int files = 0;
+				unsigned int socks = 0;
 				for (int i = 0; i < bufSize / PROC_PIDLISTFD_SIZE; i++) {
 					switch (fdinfo[i].proc_fdtype) {
 					case PROX_FDTYPE_SOCKET:
-						self.socks++;
+						socks++;
 					case PROX_FDTYPE_VNODE:
 					case PROX_FDTYPE_PIPE:
 					case PROX_FDTYPE_KQUEUE:
-						self.files++; break;
+						files++; break;
 					}
 				}
+				self.files = files;
+				self.socks = socks;
+			}
 			free(fdinfo);
 		}
 	}
@@ -229,15 +255,15 @@ unsigned int mach_thread_priority(thread_t thread, policy_t policy)
 	self.prev = [self psProcCopy];
 	// Task info
 	memcpy(&events_prev, &events, sizeof(events_prev));
+
+    extern kern_return_t _task_for_pid(pid_t pid, task_port_t *target);
+    if (_task_for_pid(self.pid, &task) != KERN_SUCCESS)
+		return;
 	memset(&basic, 0, sizeof(basic));
 	self.threads = 0;
 	self.prio = 0;
 	self.pcpu = 0;
 	self.ptime = 0;
-
-    extern kern_return_t _task_for_pid(pid_t pid, task_port_t *target);
-    if (_task_for_pid(self.pid, &task) != KERN_SUCCESS)
-		return;
 	// Basic task info
 	unsigned int info_count = MACH_TASK_BASIC_INFO_COUNT;
 	if (task_info(task, MACH_TASK_BASIC_INFO, (task_info_t)&basic, &info_count) == KERN_SUCCESS) {

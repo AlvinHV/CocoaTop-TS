@@ -32,6 +32,8 @@
     <array/>
     <key>com.apple.system-task-ports</key>
     <true/>
+    <key>com.apple.system-task-ports.read</key>
+    <true/>
     <key>com.apple.managedconfiguration.profiled-access</key>
     <true/>
     <key>com.apple.private.logging.diagnostic</key>

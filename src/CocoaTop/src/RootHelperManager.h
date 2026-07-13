@@ -11,6 +11,8 @@ typedef void(^RHCommandCompletion)(NSString * _Nullable stdoutString,
 
 @property (assign) struct CocoaTopProcessSnapshot *snapshot;
 @property (assign) struct CocoaTopThreadSnapshot *threadSnapshot;
+@property (assign) struct CocoaTopPortSnapshot *portSnapshot;
+@property (assign) struct CocoaTopDetailSnapshot *detailSnapshot;
 
 + (instancetype)sharedManager;
 
@@ -29,6 +31,18 @@ typedef void(^RHCommandCompletion)(NSString * _Nullable stdoutString,
 
 /// Fetch all thread information for one process through the command channel.
 - (void)requestThreadsForPID:(pid_t)pid completion:(RHCommandCompletion)completion;
+
+/// Fetch the Mach IPC namespace for one process.
+- (void)requestPortsForPID:(pid_t)pid completion:(RHCommandCompletion)completion;
+
+/// Fetch only port names, rights, and object IDs for cross-process matching.
+- (void)requestPortReferencesForPID:(pid_t)pid completion:(RHCommandCompletion)completion;
+
+/// Fetch task, IPC-table, and descriptor counts for one process.
+- (void)requestProcessInfoForPID:(pid_t)pid completion:(RHCommandCompletion)completion;
+
+/// Fetch executable mapped regions for one process.
+- (void)requestModulesForPID:(pid_t)pid completion:(RHCommandCompletion)completion;
 
 /// Deliver a signal from the privileged helper.
 - (void)sendSignal:(int)signal toProcess:(pid_t)pid completion:(RHCommandCompletion)completion;

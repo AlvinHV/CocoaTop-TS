@@ -3,6 +3,7 @@
 #import "GridCell.h"
 #import "Column.h"
 #import "Sock.h"
+#import "RootHelperManager.h"
 
 NSString *ColumnModeName[ColumnModes] = {@"Summary", @"Threads", @"Open files", @"Open ports", @"Modules"};
 
@@ -136,6 +137,18 @@ NSString *ColumnModeName[ColumnModes] = {@"Summary", @"Threads", @"Open files", 
 	}
 	// Update titlebar
 	[proc update];
+	__block NSInteger processResult = -EIO;
+	dispatch_semaphore_t processSemaphore = dispatch_semaphore_create(0);
+	[[RootHelperManager sharedManager] requestProcessInfoForPID:proc.pid
+	                                               completion:^(NSString *stdoutString, NSString *stderrString, NSInteger exitCode) {
+		if (exitCode == 0)
+			processResult = stdoutString.integerValue;
+		dispatch_semaphore_signal(processSemaphore);
+	}];
+	dispatch_semaphore_wait(processSemaphore, DISPATCH_TIME_FOREVER);
+	struct CocoaTopDetailSnapshot *detail = [RootHelperManager sharedManager].detailSnapshot;
+	if (processResult == 1 && detail->error == 0 && detail->pid == proc.pid)
+		[proc updateWithProcessMetrics:&detail->process sampleTime:detail->sample_time];
 	self.navigationItem.title = [procName stringByAppendingFormat:@" (CPU %.1f%%)", (float)proc.pcpu / 10];
 	// Update tableview
     if ([socks refreshWithMode:viewMode] && socks.proc.pid != 0) {
