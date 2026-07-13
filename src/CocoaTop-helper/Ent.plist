@@ -6,13 +6,9 @@
     <true/>
     <key>com.apple.private.security.no-sandbox</key>
     <true/>
-    <key>com.apple.private.security.sandbox.debug-mode</key>
-    <true/>
     <key>com.apple.private.persona-mgmt</key>
     <true/>
     <key>platform-application</key>
-    <true/>
-    <key>get-task-allow</key>
     <true/>
     <key>proc_info-allow</key>
     <true/>
@@ -41,10 +37,6 @@
     <key>com.apple.private.memorystatus</key>
     <true/>
     <key>com.apple.private.kernel.get-kext-info</key>
-    <true/>
-    <key>com.apple.private.thread-set-state</key>
-    <true/>
-    <key>com.apple.private.set-exception-port</key>
     <true/>
     <key>com.apple.private.sysdiagnose</key>
     <true/>
