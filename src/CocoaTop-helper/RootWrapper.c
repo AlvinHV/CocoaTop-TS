@@ -19,6 +19,7 @@
 #include "../CocoaTop/src/ProcessSnapshot.h"
 
 extern int proc_pidinfo(int pid, int flavor, uint64_t arg, void *buffer, int buffersize);
+extern int proc_pidfdinfo(int pid, int fd, int flavor, void *buffer, int buffersize);
 extern int proc_pid_rusage(int pid, int flavor, struct rusage_info_v2 *rusage);
 extern kern_return_t mach_vm_read_overwrite(vm_map_t target_task,
                                              mach_vm_address_t address,
@@ -284,6 +285,172 @@ static ssize_t get_thread_list(struct CocoaTopThreadSnapshot *snapshot, size_t b
 
     snapshot->count = count;
     return count;
+}
+
+union CocoaTopFDInfo {
+    struct vnode_fdinfowithpath vnode;
+    struct pipe_fdinfo pipe;
+    struct kqueue_fdinfo kqueue;
+    struct socket_fdinfo socket;
+};
+
+static int fd_type_supported(uint32_t type, int include_details) {
+    if (!include_details)
+        return type == PROX_FDTYPE_PIPE || type == PROX_FDTYPE_SOCKET;
+    return type == PROX_FDTYPE_VNODE || type == PROX_FDTYPE_PIPE ||
+           type == PROX_FDTYPE_KQUEUE || type == PROX_FDTYPE_SOCKET;
+}
+
+static size_t align_fd_data(size_t offset) {
+    return (offset + sizeof(uint64_t) - 1) & ~(sizeof(uint64_t) - 1);
+}
+
+static ssize_t get_fd_list(struct CocoaTopFDSnapshot *snapshot, size_t bufSize,
+                           pid_t pid, int include_details) {
+    if (bufSize < sizeof(*snapshot)) {
+        errno = ENOSPC;
+        return -1;
+    }
+
+    snapshot->error = 0;
+    snapshot->pid = pid;
+    snapshot->count = 0;
+    snapshot->data_size = sizeof(*snapshot);
+
+    errno = 0;
+    int required = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, NULL, 0);
+    if (required <= 0) {
+        int error = errno ? errno : ESRCH;
+        snapshot->error = error;
+        errno = error;
+        return -1;
+    }
+    if (required > INT_MAX / 2) {
+        snapshot->error = ENOSPC;
+        errno = ENOSPC;
+        return -1;
+    }
+
+    int list_size = required * 2;
+    struct proc_fdinfo *descriptors = malloc((size_t)list_size);
+    if (!descriptors) {
+        snapshot->error = ENOMEM;
+        errno = ENOMEM;
+        return -1;
+    }
+
+    int list_bytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, descriptors, list_size);
+    if (list_bytes <= 0) {
+        int error = errno ? errno : ESRCH;
+        free(descriptors);
+        snapshot->error = error;
+        errno = error;
+        return -1;
+    }
+
+    size_t descriptor_count = (size_t)list_bytes / sizeof(*descriptors);
+    size_t output_count = 0;
+    for (size_t i = 0; i < descriptor_count; i++)
+        if (fd_type_supported(descriptors[i].proc_fdtype, include_details))
+            output_count++;
+
+    size_t records_size = output_count * sizeof(snapshot->records[0]);
+    if (records_size > bufSize - sizeof(*snapshot)) {
+        free(descriptors);
+        snapshot->error = ENOSPC;
+        errno = ENOSPC;
+        return -1;
+    }
+    size_t data_offset = align_fd_data(sizeof(*snapshot) + records_size);
+    if (data_offset > bufSize) {
+        free(descriptors);
+        snapshot->error = ENOSPC;
+        errno = ENOSPC;
+        return -1;
+    }
+
+    uint32_t output_index = 0;
+    for (size_t i = 0; i < descriptor_count; i++) {
+        const struct proc_fdinfo *descriptor = &descriptors[i];
+        if (!fd_type_supported(descriptor->proc_fdtype, include_details))
+            continue;
+
+        struct CocoaTopFDRecord *record = &snapshot->records[output_index++];
+        memset(record, 0, sizeof(*record));
+        record->descriptor = *descriptor;
+
+        union CocoaTopFDInfo info;
+        memset(&info, 0, sizeof(info));
+        void *info_ptr = NULL;
+        size_t info_size = 0;
+        int flavor = 0;
+        switch (descriptor->proc_fdtype) {
+        case PROX_FDTYPE_VNODE:
+            info_ptr = &info.vnode;
+            info_size = sizeof(info.vnode);
+            flavor = PROC_PIDFDVNODEPATHINFO;
+            break;
+        case PROX_FDTYPE_PIPE:
+            info_ptr = &info.pipe;
+            info_size = sizeof(info.pipe);
+            flavor = PROC_PIDFDPIPEINFO;
+            break;
+        case PROX_FDTYPE_KQUEUE:
+            info_ptr = &info.kqueue;
+            info_size = sizeof(info.kqueue);
+            flavor = PROC_PIDFDKQUEUEINFO;
+            break;
+        case PROX_FDTYPE_SOCKET:
+            info_ptr = &info.socket;
+            info_size = sizeof(info.socket);
+            flavor = PROC_PIDFDSOCKETINFO;
+            break;
+        }
+
+        if (!info_ptr || info_size > INT_MAX ||
+            proc_pidfdinfo(pid, descriptor->proc_fd, flavor, info_ptr,
+                           (int)info_size) != (int)info_size)
+            continue;
+
+        switch (descriptor->proc_fdtype) {
+        case PROX_FDTYPE_VNODE:
+            info.vnode.pvip.vip_path[sizeof(info.vnode.pvip.vip_path) - 1] = '\0';
+            record->flags = info.vnode.pfi.fi_openflags;
+            record->node = info.vnode.pvip.vip_vi.vi_stat.vst_ino;
+            break;
+        case PROX_FDTYPE_PIPE:
+            record->flags = info.pipe.pfi.fi_openflags;
+            record->status = info.pipe.pipeinfo.pipe_status;
+            record->node = info.pipe.pipeinfo.pipe_handle;
+            record->peer = info.pipe.pipeinfo.pipe_peerhandle;
+            break;
+        case PROX_FDTYPE_KQUEUE:
+            record->flags = info.kqueue.pfi.fi_openflags;
+            record->status = info.kqueue.kqueueinfo.kq_state;
+            record->node = info.kqueue.kqueueinfo.kq_state;
+            break;
+        case PROX_FDTYPE_SOCKET:
+            record->flags = info.socket.pfi.fi_openflags;
+            record->status = info.socket.psi.soi_kind;
+            record->node = info.socket.psi.soi_so;
+            if (info.socket.psi.soi_kind == SOCKINFO_UN)
+                record->peer = info.socket.psi.soi_proto.pri_un.unsi_conn_so;
+            break;
+        }
+
+        size_t next_data_offset = align_fd_data(data_offset + info_size);
+        if (include_details && next_data_offset <= bufSize) {
+            memcpy((char *)snapshot + data_offset, info_ptr, info_size);
+            record->info_offset = (uint32_t)data_offset;
+            record->info_size = (uint32_t)info_size;
+            data_offset = next_data_offset;
+        }
+    }
+
+    free(descriptors);
+    snapshot->count = output_index;
+    snapshot->data_size = (uint32_t)data_offset;
+    return output_index;
 }
 
 static int same_module(const struct CocoaTopModuleRecord *record,
@@ -750,15 +917,16 @@ static ssize_t get_module_list(struct CocoaTopDetailSnapshot *snapshot, size_t b
 }
 
 int main(int argc, char *argv[]) {
-    if (argc < 7) {
-        fprintf(stderr, "Usage: %s <process_buf_size> <thread_buf_size> <port_buf_size> <detail_buf_size> <list_request_fd> <list_response_fd>\n", argv[0]);
+    if (argc < 8) {
+        fprintf(stderr, "Usage: %s <process_buf_size> <thread_buf_size> <fd_buf_size> <port_buf_size> <detail_buf_size> <list_request_fd> <list_response_fd>\n", argv[0]);
         return EXIT_FAILURE;
     }
     
-    char shm_name[50], thread_shm_name[50], port_shm_name[50], detail_shm_name[50];
+    char shm_name[50], thread_shm_name[50], fd_shm_name[50], port_shm_name[50], detail_shm_name[50];
     int parent_pid = getppid();
     snprintf(shm_name, sizeof(shm_name), "/cocoatop_%d", parent_pid);
     snprintf(thread_shm_name, sizeof(thread_shm_name), "/cocoatop_threads_%d", parent_pid);
+    snprintf(fd_shm_name, sizeof(fd_shm_name), "/cocoatop_fds_%d", parent_pid);
     snprintf(port_shm_name, sizeof(port_shm_name), "/cocoatop_ports_%d", parent_pid);
     snprintf(detail_shm_name, sizeof(detail_shm_name), "/cocoatop_details_%d", parent_pid);
     
@@ -771,6 +939,12 @@ int main(int argc, char *argv[]) {
     int thread_shm_fd = shm_open(thread_shm_name, O_RDWR, S_IRUSR | S_IWUSR);
     if (thread_shm_fd < 0) {
         perror("helper: thread shm_open");
+        return EXIT_FAILURE;
+    }
+
+    int fd_shm_fd = shm_open(fd_shm_name, O_RDWR, S_IRUSR | S_IWUSR);
+    if (fd_shm_fd < 0) {
+        perror("helper: fd shm_open");
         return EXIT_FAILURE;
     }
 
@@ -788,10 +962,11 @@ int main(int argc, char *argv[]) {
 
     size_t bufSize = (size_t)strtoull(argv[1], NULL, 10);
     size_t threadBufSize = (size_t)strtoull(argv[2], NULL, 10);
-    size_t portBufSize = (size_t)strtoull(argv[3], NULL, 10);
-    size_t detailBufSize = (size_t)strtoull(argv[4], NULL, 10);
-    int listRequestFD = (int)strtol(argv[5], NULL, 10);
-    int listResponseFD = (int)strtol(argv[6], NULL, 10);
+    size_t fdBufSize = (size_t)strtoull(argv[3], NULL, 10);
+    size_t portBufSize = (size_t)strtoull(argv[4], NULL, 10);
+    size_t detailBufSize = (size_t)strtoull(argv[5], NULL, 10);
+    int listRequestFD = (int)strtol(argv[6], NULL, 10);
+    int listResponseFD = (int)strtol(argv[7], NULL, 10);
     
     // mmap the shared memory region
     struct CocoaTopProcessSnapshot *snapshot = mmap(NULL, bufSize,
@@ -811,6 +986,16 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
+    struct CocoaTopFDSnapshot *fd_snapshot = mmap(NULL, fdBufSize,
+                                                   PROT_READ | PROT_WRITE,
+                                                   MAP_SHARED, fd_shm_fd, 0);
+    if (fd_snapshot == MAP_FAILED) {
+        perror("fd mmap");
+        munmap(snapshot, bufSize);
+        munmap(thread_snapshot, threadBufSize);
+        return EXIT_FAILURE;
+    }
+
     struct CocoaTopPortSnapshot *port_snapshot = mmap(NULL, portBufSize,
                                                        PROT_READ | PROT_WRITE,
                                                        MAP_SHARED, port_shm_fd, 0);
@@ -818,6 +1003,7 @@ int main(int argc, char *argv[]) {
         perror("port mmap");
         munmap(snapshot, bufSize);
         munmap(thread_snapshot, threadBufSize);
+        munmap(fd_snapshot, fdBufSize);
         return EXIT_FAILURE;
     }
 
@@ -828,6 +1014,7 @@ int main(int argc, char *argv[]) {
         perror("detail mmap");
         munmap(snapshot, bufSize);
         munmap(thread_snapshot, threadBufSize);
+        munmap(fd_snapshot, fdBufSize);
         munmap(port_snapshot, portBufSize);
         return EXIT_FAILURE;
     }
@@ -873,6 +1060,12 @@ int main(int argc, char *argv[]) {
             } else if (sscanf(line, "getthreads %d", &pid) == 1) {
                 ssize_t count = get_thread_list(thread_snapshot, threadBufSize, pid);
                 printf("%zd\n", count >= 0 ? count : -(ssize_t)errno);
+            } else if (sscanf(line, "getfds %d", &pid) == 1) {
+                ssize_t count = get_fd_list(fd_snapshot, fdBufSize, pid, 1);
+                printf("%zd\n", count >= 0 ? count : -(ssize_t)errno);
+            } else if (sscanf(line, "getfdrefs %d", &pid) == 1) {
+                ssize_t count = get_fd_list(fd_snapshot, fdBufSize, pid, 0);
+                printf("%zd\n", count >= 0 ? count : -(ssize_t)errno);
             } else if (sscanf(line, "getports %d", &pid) == 1) {
                 ssize_t count = get_port_list(port_snapshot, portBufSize, pid, 1);
                 printf("%zd\n", count >= 0 ? count : -(ssize_t)errno);
@@ -900,10 +1093,12 @@ int main(int argc, char *argv[]) {
     
     munmap(snapshot, bufSize);
     munmap(thread_snapshot, threadBufSize);
+    munmap(fd_snapshot, fdBufSize);
     munmap(port_snapshot, portBufSize);
     munmap(detail_snapshot, detailBufSize);
     close(shm_fd);
     close(thread_shm_fd);
+    close(fd_shm_fd);
     close(port_shm_fd);
     close(detail_shm_fd);
     return EXIT_SUCCESS;

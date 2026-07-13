@@ -11,6 +11,7 @@ typedef void(^RHCommandCompletion)(NSString * _Nullable stdoutString,
 
 @property (assign) struct CocoaTopProcessSnapshot *snapshot;
 @property (assign) struct CocoaTopThreadSnapshot *threadSnapshot;
+@property (assign) struct CocoaTopFDSnapshot *fdSnapshot;
 @property (assign) struct CocoaTopPortSnapshot *portSnapshot;
 @property (assign) struct CocoaTopDetailSnapshot *detailSnapshot;
 
@@ -31,6 +32,12 @@ typedef void(^RHCommandCompletion)(NSString * _Nullable stdoutString,
 
 /// Fetch all thread information for one process through the command channel.
 - (void)requestThreadsForPID:(pid_t)pid completion:(RHCommandCompletion)completion;
+
+/// Fetch supported file descriptors and their detailed information.
+- (void)requestFileDescriptorsForPID:(pid_t)pid completion:(RHCommandCompletion)completion;
+
+/// Fetch pipe and UNIX-socket object IDs for cross-process matching.
+- (void)requestFileDescriptorReferencesForPID:(pid_t)pid completion:(RHCommandCompletion)completion;
 
 /// Fetch the Mach IPC namespace for one process.
 - (void)requestPortsForPID:(pid_t)pid completion:(RHCommandCompletion)completion;

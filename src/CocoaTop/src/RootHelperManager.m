@@ -27,6 +27,9 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
 @property (strong) NSString *threadShmName;
 @property (assign) int threadShmFD;
 @property (assign) size_t threadBufSize;
+@property (strong) NSString *fdShmName;
+@property (assign) int fdShmFD;
+@property (assign) size_t fdBufSize;
 @property (strong) NSString *portShmName;
 @property (assign) int portShmFD;
 @property (assign) size_t portBufSize;
@@ -85,6 +88,7 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
     }
     self.bufSize = sizeof(*self.snapshot) + maxproc * sizeof(self.snapshot->records[0]);
     self.threadBufSize = 4 * 1024 * 1024;
+    self.fdBufSize = 16 * 1024 * 1024;
     self.portBufSize = 4 * 1024 * 1024;
     self.detailBufSize = 4 * 1024 * 1024;
     
@@ -107,6 +111,13 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
     self.threadShmName = [NSString stringWithFormat:@"/cocoatop_threads_%d", getpid()];
     self.threadShmFD = shm_open(self.threadShmName.UTF8String, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
     if (self.threadShmFD < 0 || ftruncate(self.threadShmFD, self.threadBufSize) < 0) {
+        if (outError) *outError = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+        return NO;
+    }
+
+    self.fdShmName = [NSString stringWithFormat:@"/cocoatop_fds_%d", getpid()];
+    self.fdShmFD = shm_open(self.fdShmName.UTF8String, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+    if (self.fdShmFD < 0 || ftruncate(self.fdShmFD, self.fdBufSize) < 0) {
         if (outError) *outError = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
         return NO;
     }
@@ -153,6 +164,14 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
         return NO;
     }
 
+    self.fdSnapshot = mmap(NULL, self.fdBufSize,
+                           PROT_READ | PROT_WRITE,
+                           MAP_SHARED, self.fdShmFD, 0);
+    if (self.fdSnapshot == MAP_FAILED) {
+        if (outError) *outError = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+        return NO;
+    }
+
     self.portSnapshot = mmap(NULL, self.portBufSize,
                              PROT_READ | PROT_WRITE,
                              MAP_SHARED, self.portShmFD, 0);
@@ -190,14 +209,15 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
     posix_spawnattr_set_persona_gid_np(&attr, 0);
     
     // Pass shared-memory sizes and the dedicated process-list pipe descriptors.
-    char bufArg[32], threadBufArg[32], portBufArg[32], detailBufArg[32], listRequestArg[16], listResponseArg[16];
+    char bufArg[32], threadBufArg[32], fdBufArg[32], portBufArg[32], detailBufArg[32], listRequestArg[16], listResponseArg[16];
     snprintf(bufArg, sizeof(bufArg), "%zu", self.bufSize);
     snprintf(threadBufArg, sizeof(threadBufArg), "%zu", self.threadBufSize);
+    snprintf(fdBufArg, sizeof(fdBufArg), "%zu", self.fdBufSize);
     snprintf(portBufArg, sizeof(portBufArg), "%zu", self.portBufSize);
     snprintf(detailBufArg, sizeof(detailBufArg), "%zu", self.detailBufSize);
     snprintf(listRequestArg, sizeof(listRequestArg), "%d", listRequestPipe[0]);
     snprintf(listResponseArg, sizeof(listResponseArg), "%d", listResponsePipe[1]);
-    char *argv[] = { (char*)helperPath.UTF8String, bufArg, threadBufArg, portBufArg, detailBufArg,
+    char *argv[] = { (char*)helperPath.UTF8String, bufArg, threadBufArg, fdBufArg, portBufArg, detailBufArg,
                      listRequestArg, listResponseArg, NULL };
     pid_t pid;
     int err = posix_spawn(&pid,
@@ -410,6 +430,16 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
     [self sendCommand:[NSString stringWithFormat:@"getthreads %d", pid] completion:completion];
 }
 
+- (void)requestFileDescriptorsForPID:(pid_t)pid completion:(RHCommandCompletion)completion
+{
+    [self sendCommand:[NSString stringWithFormat:@"getfds %d", pid] completion:completion];
+}
+
+- (void)requestFileDescriptorReferencesForPID:(pid_t)pid completion:(RHCommandCompletion)completion
+{
+    [self sendCommand:[NSString stringWithFormat:@"getfdrefs %d", pid] completion:completion];
+}
+
 - (void)requestPortsForPID:(pid_t)pid completion:(RHCommandCompletion)completion
 {
     [self sendCommand:[NSString stringWithFormat:@"getports %d", pid] completion:completion];
@@ -451,14 +481,17 @@ extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __restric
     close(self.listResponseFD);
     munmap(self.snapshot, self.bufSize);
     munmap(self.threadSnapshot, self.threadBufSize);
+    munmap(self.fdSnapshot, self.fdBufSize);
     munmap(self.portSnapshot, self.portBufSize);
     munmap(self.detailSnapshot, self.detailBufSize);
     close(self.shmFD);
     close(self.threadShmFD);
+    close(self.fdShmFD);
     close(self.portShmFD);
     close(self.detailShmFD);
     shm_unlink(self.shmName.UTF8String);
     shm_unlink(self.threadShmName.UTF8String);
+    shm_unlink(self.fdShmName.UTF8String);
     shm_unlink(self.portShmName.UTF8String);
     shm_unlink(self.detailShmName.UTF8String);
     [[UIApplication sharedApplication] performSelector:@selector(suspend)];

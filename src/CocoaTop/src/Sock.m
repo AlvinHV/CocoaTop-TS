@@ -287,29 +287,80 @@ void dump(unsigned char *b, int s)
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 //  OPEN FILES PAGE
 
+static NSInteger psFetchFDSnapshot(pid_t pid, BOOL includeDetails)
+{
+	__block NSInteger result = -EIO;
+	dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+	RHCommandCompletion completion = ^(NSString *stdoutString, NSString *stderrString, NSInteger exitCode) {
+		if (exitCode == 0)
+			result = stdoutString.integerValue;
+		dispatch_semaphore_signal(semaphore);
+	};
+	if (includeDetails)
+		[[RootHelperManager sharedManager] requestFileDescriptorsForPID:pid completion:completion];
+	else
+		[[RootHelperManager sharedManager] requestFileDescriptorReferencesForPID:pid completion:completion];
+	dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+
+	if (result < 0)
+		return result;
+	struct CocoaTopFDSnapshot *snapshot = [RootHelperManager sharedManager].fdSnapshot;
+	size_t recordsEnd = sizeof(*snapshot) +
+	                    (size_t)snapshot->count * sizeof(snapshot->records[0]);
+	if (snapshot->error != 0 || snapshot->pid != pid ||
+	    snapshot->count != (uint32_t)result || snapshot->data_size < recordsEnd)
+		return -EIO;
+	return result;
+}
+
+static const void *psFDRecordInfo(const struct CocoaTopFDSnapshot *snapshot,
+	                              const struct CocoaTopFDRecord *record,
+	                              size_t expectedSize)
+{
+	if (record->info_size != expectedSize)
+		return NULL;
+	size_t recordsEnd = sizeof(*snapshot) +
+	                    (size_t)snapshot->count * sizeof(snapshot->records[0]);
+	uint64_t infoEnd = (uint64_t)record->info_offset + record->info_size;
+	if (record->info_offset < recordsEnd || infoEnd > snapshot->data_size)
+		return NULL;
+	return (const char *)snapshot + record->info_offset;
+}
+
 @implementation PSSockFiles
 
-- (instancetype)initWithSocks:(PSSockArray *)socks fd:(int32_t)fd type:(uint32_t)type
+- (instancetype)initWithSocks:(PSSockArray *)socks
+	                   snapshot:(const struct CocoaTopFDSnapshot *)snapshot
+	                     record:(const struct CocoaTopFDRecord *)record
 {
-	pid_t pid = socks.proc.pid;
+	int32_t fd = record->descriptor.proc_fd;
+	uint32_t type = record->descriptor.proc_fdtype;
 	NSMutableString *name = nil;
     UIColor *color = _labelColor();//[UIColor blackColor];
-	uint32_t flags = 0;
-	uint64_t node = 0;
+	uint32_t flags = record->flags;
+	uint64_t node = record->node;
 	char *stype = nil;
+	size_t infoSize = type == PROX_FDTYPE_VNODE ? sizeof(struct vnode_fdinfowithpath) :
+	                  type == PROX_FDTYPE_PIPE ? sizeof(struct pipe_fdinfo) :
+	                  type == PROX_FDTYPE_KQUEUE ? sizeof(struct kqueue_fdinfo) :
+	                  type == PROX_FDTYPE_SOCKET ? sizeof(struct socket_fdinfo) : 0;
+	const void *infoData = infoSize ? psFDRecordInfo(snapshot, record, infoSize) : NULL;
 
-	if (type == PROX_FDTYPE_VNODE) {
+	if (!infoData) {
+		if (type == PROX_FDTYPE_VNODE) { name = [@"VNODE" mutableCopy]; stype = "VNODE"; }
+		else if (type == PROX_FDTYPE_PIPE) { name = [@"PIPE" mutableCopy]; stype = "PIPE"; color = _blueColor(); }
+		else if (type == PROX_FDTYPE_KQUEUE) { name = [@"KQUEUE" mutableCopy]; stype = "QUEUE"; color = _grayColor(); }
+		else if (type == PROX_FDTYPE_SOCKET) { name = [@"SOCKET" mutableCopy]; stype = "SOCK"; }
+	} else if (type == PROX_FDTYPE_VNODE) {
 		struct vnode_fdinfowithpath info;
-		if (proc_pidfdinfo(pid, fd, PROC_PIDFDVNODEPATHINFO, &info, PROC_PIDFDVNODEPATHINFO_SIZE) != PROC_PIDFDVNODEPATHINFO_SIZE)
-			return nil;
+		memcpy(&info, infoData, sizeof(info));
 		name = [[PSSymLink simplifyPathName:[NSString stringWithUTF8String:info.pvip.vip_path]] mutableCopy];
 		stype = "VNODE";
 		flags = info.pfi.fi_openflags;
 		node = info.pvip.vip_vi.vi_stat.vst_ino;
 	} else if (type == PROX_FDTYPE_PIPE) {
 		struct pipe_fdinfo info;
-		if (proc_pidfdinfo(pid, fd, PROC_PIDFDPIPEINFO, &info, PROC_PIDFDPIPEINFO_SIZE) != PROC_PIDFDPIPEINFO_SIZE)
-			return nil;
+		memcpy(&info, infoData, sizeof(info));
 		NSString *partner = socks.objects[@(info.pipeinfo.pipe_peerhandle)];
 		name = [NSMutableString stringWithFormat:@"\u2192 %@", partner ? partner : @"<Unknown>"];
 		if (info.pipeinfo.pipe_status & PIPE_WANTR)			[name appendString:@" READ"];
@@ -325,8 +376,7 @@ void dump(unsigned char *b, int s)
 		node = info.pipeinfo.pipe_handle;
 	} else if (type == PROX_FDTYPE_KQUEUE) {
 		struct kqueue_fdinfo info;
-		if (proc_pidfdinfo(pid, fd, PROC_PIDFDKQUEUEINFO, &info, PROC_PIDFDKQUEUEINFO_SIZE) != PROC_PIDFDKQUEUEINFO_SIZE)
-			return nil;
+		memcpy(&info, infoData, sizeof(info));
 		name = [info.kqueueinfo.kq_state & PROC_KQUEUE_64 ? @"KQUEUE64:" : info.kqueueinfo.kq_state & PROC_KQUEUE_32 ? @"KQUEUE32:" : @"KQUEUE:" mutableCopy];
 		if (info.kqueueinfo.kq_state & PROC_KQUEUE_SELECT)	[name appendString:@" SELECT"];
 		if (info.kqueueinfo.kq_state & PROC_KQUEUE_SLEEP)	[name appendString:@" SLEEP"];
@@ -340,8 +390,7 @@ void dump(unsigned char *b, int s)
 		char lip[INET_ADDRSTRLEN] = "", fip[INET_ADDRSTRLEN] = "";
 		struct in_sockinfo *s;
 		struct socket_fdinfo info;
-		if (proc_pidfdinfo(pid, fd, PROC_PIDFDSOCKETINFO, &info, PROC_PIDFDSOCKETINFO_SIZE) != PROC_PIDFDSOCKETINFO_SIZE)
-			return nil;
+		memcpy(&info, infoData, sizeof(info));
 		switch (info.psi.soi_kind) {
 		case SOCKINFO_TCP:	// Type: TCP
 		case SOCKINFO_IN:	// Type: UDP
@@ -465,44 +514,31 @@ void dump(unsigned char *b, int s)
 	return self;
 }
 
-+ (instancetype)psSock:(PSSockArray *)socks fd:(int32_t)fd type:(uint32_t)type
++ (instancetype)psSock:(PSSockArray *)socks
+	           snapshot:(const struct CocoaTopFDSnapshot *)snapshot
+	             record:(const struct CocoaTopFDRecord *)record
 {
-	return [[PSSockFiles alloc] initWithSocks:socks fd:fd type:type];
+	return [[PSSockFiles alloc] initWithSocks:socks snapshot:snapshot record:record];
 }
 
-- (BOOL)updateWithPid:(pid_t)pid fd:(int32_t)fd
+- (BOOL)updateWithFDRecord:(const struct CocoaTopFDRecord *)record
 {
 	if (self.display != ProcDisplayStarted)
 		self.display = ProcDisplayUser;
-	if (self.type == PROX_FDTYPE_VNODE) {
-		struct vnode_fdinfo info;
-		if (proc_pidfdinfo(pid, fd, PROC_PIDFDVNODEINFO, &info, PROC_PIDFDVNODEINFO_SIZE) != PROC_PIDFDVNODEINFO_SIZE)
-			return NO;
-		return self.node == info.pvi.vi_stat.vst_ino;
-	} else if (self.type == PROX_FDTYPE_PIPE) {
-		struct pipe_fdinfo info;
-		if (proc_pidfdinfo(pid, fd, PROC_PIDFDPIPEINFO, &info, PROC_PIDFDPIPEINFO_SIZE) != PROC_PIDFDPIPEINFO_SIZE)
-			return NO;
-		return self.node == info.pipeinfo.pipe_handle;
-	} else if (self.type == PROX_FDTYPE_SOCKET) {
-		struct socket_fdinfo info;
-		if (proc_pidfdinfo(pid, fd, PROC_PIDFDSOCKETINFO, &info, PROC_PIDFDSOCKETINFO_SIZE) != PROC_PIDFDSOCKETINFO_SIZE)
-			return NO;
-		return self.node == info.psi.soi_so;
-	} else if (self.type == PROX_FDTYPE_KQUEUE) {
-		struct kqueue_fdinfo info;
-		if (proc_pidfdinfo(pid, fd, PROC_PIDFDKQUEUEINFO, &info, PROC_PIDFDKQUEUEINFO_SIZE) != PROC_PIDFDKQUEUEINFO_SIZE)
-			return NO;
-		if (self.node == info.kqueueinfo.kq_state)
-			return YES;
-		self.node = info.kqueueinfo.kq_state;
-		NSMutableString *name = [info.kqueueinfo.kq_state & PROC_KQUEUE_64 ? @"KQUEUE64:" : info.kqueueinfo.kq_state & PROC_KQUEUE_32 ? @"KQUEUE32:" : @"KQUEUE:" mutableCopy];
-		if (info.kqueueinfo.kq_state & PROC_KQUEUE_SELECT)	[name appendString:@" SELECT"];
-		if (info.kqueueinfo.kq_state & PROC_KQUEUE_SLEEP)	[name appendString:@" SLEEP"];
-		if (info.kqueueinfo.kq_state & PROC_KQUEUE_QOS)		[name appendString:@" QOS"];
-		if (!(info.kqueueinfo.kq_state & ~(PROC_KQUEUE_32 | PROC_KQUEUE_64))) [name appendString:@" SUSPENDED"];
-		self.name = [name copy];
-	}
+	if (!self.node || !record->node)
+		return YES;
+	if (self.type != PROX_FDTYPE_KQUEUE)
+		return self.node == record->node;
+	if (self.node == record->node)
+		return YES;
+	self.node = record->node;
+	uint32_t state = record->status;
+	NSMutableString *name = [state & PROC_KQUEUE_64 ? @"KQUEUE64:" : state & PROC_KQUEUE_32 ? @"KQUEUE32:" : @"KQUEUE:" mutableCopy];
+	if (state & PROC_KQUEUE_SELECT) [name appendString:@" SELECT"];
+	if (state & PROC_KQUEUE_SLEEP) [name appendString:@" SLEEP"];
+	if (state & PROC_KQUEUE_QOS) [name appendString:@" QOS"];
+	if (!(state & ~(PROC_KQUEUE_32 | PROC_KQUEUE_64))) [name appendString:@" SUSPENDED"];
+	self.name = name;
 	return YES;
 }
 
@@ -510,41 +546,21 @@ void dump(unsigned char *b, int s)
 + (int)getKernelObjects:(NSMutableDictionary *)objects
 {
 	PSProcInfo *procs = [PSProcInfo psProcInfoSort:NO];
-	struct proc_fdinfo *fdinfo = 0;
-	size_t bufSize = 0, curBufSize = 0;
 	for (int i = 0; i < procs->count; i++) {
 		struct extern_proc *ep = &procs->records[i].kinfo.kp_proc;
-		bufSize = proc_pidinfo(ep->p_pid, PROC_PIDLISTFDS, 0, 0, 0);
-		if (bufSize <= 0)
+		NSInteger count = psFetchFDSnapshot(ep->p_pid, NO);
+		if (count < 0)
 			continue;
-		if (bufSize > curBufSize) {
-			bufSize *= 2;
-			if (fdinfo) free(fdinfo);
-			fdinfo = (struct proc_fdinfo *)malloc(bufSize);
-			if (!fdinfo)
-				return ENOMEM;
-			curBufSize = bufSize;
-		}
-		bufSize = proc_pidinfo(ep->p_pid, PROC_PIDLISTFDS, 0, fdinfo, bufSize);
-		if (bufSize <= 0)
-			continue;
-		for (int j = 0; j < bufSize / PROC_PIDLISTFD_SIZE; j++) {
-			int32_t fd = fdinfo[j].proc_fd;
-			if (fdinfo[j].proc_fdtype == PROX_FDTYPE_PIPE) {
-				struct pipe_fdinfo info;
-				if (proc_pidfdinfo(ep->p_pid, fd, PROC_PIDFDPIPEINFO, &info, PROC_PIDFDPIPEINFO_SIZE) != PROC_PIDFDPIPEINFO_SIZE)
-					continue;
-				objects[@(info.pipeinfo.pipe_handle)] = [NSString stringWithFormat:@"[%@:%d]", psGetProcessName(ep), fd];
-			} else if (fdinfo[j].proc_fdtype == PROX_FDTYPE_SOCKET) {
-				struct socket_fdinfo info;
-				if (proc_pidfdinfo(ep->p_pid, fd, PROC_PIDFDSOCKETINFO, &info, PROC_PIDFDSOCKETINFO_SIZE) != PROC_PIDFDSOCKETINFO_SIZE)
-					continue;
-				if (info.psi.soi_kind == SOCKINFO_UN && info.psi.soi_so)
-					objects[@(info.psi.soi_so)] = [NSString stringWithFormat:@"[%@:%d]", psGetProcessName(ep), fd];
-			}
+		struct CocoaTopFDSnapshot *snapshot = [RootHelperManager sharedManager].fdSnapshot;
+		for (NSInteger j = 0; j < count; j++) {
+			const struct CocoaTopFDRecord *record = &snapshot->records[j];
+			BOOL isPipe = record->descriptor.proc_fdtype == PROX_FDTYPE_PIPE;
+			BOOL isUnixSocket = record->descriptor.proc_fdtype == PROX_FDTYPE_SOCKET &&
+			                    record->status == SOCKINFO_UN;
+			if ((isPipe || isUnixSocket) && record->node)
+				objects[@(record->node)] = [NSString stringWithFormat:@"[%@:%d]", psGetProcessName(ep), record->descriptor.proc_fd];
 		}
 	}
-	if (fdinfo) free(fdinfo);
 	return 0;
 }
 
@@ -554,34 +570,24 @@ void dump(unsigned char *b, int s)
 		socks.objects = [NSMutableDictionary dictionaryWithCapacity:1000];
 		[self getKernelObjects:socks.objects];
 	}
-	// Get buffer size
-	int bufSize = proc_pidinfo(socks.proc.pid, PROC_PIDLISTFDS, 0, 0, 0);
-	if (bufSize <= 0)
-		return EPERM;
-	// Make sure the buffer is large enough ;)
-	bufSize *= 2;
-	struct proc_fdinfo *fdinfo = (struct proc_fdinfo *)malloc(bufSize);
-	if (!fdinfo)
-		return ENOMEM;
-	// Get socket list and update the socks array
-	bufSize = proc_pidinfo(socks.proc.pid, PROC_PIDLISTFDS, 0, fdinfo, bufSize);
-	if (bufSize > 0) {
-		int totalfds = bufSize / PROC_PIDLISTFD_SIZE;
-		for (int i = 0; i < totalfds; i++) {
+	NSInteger totalfds = psFetchFDSnapshot(socks.proc.pid, YES);
+	if (totalfds < 0)
+		return (int)-totalfds;
+	struct CocoaTopFDSnapshot *snapshot = [RootHelperManager sharedManager].fdSnapshot;
+	for (NSInteger i = 0; i < totalfds; i++) {
+		const struct CocoaTopFDRecord *record = &snapshot->records[i];
 			PSSockFiles *sock = (PSSockFiles *)[socks objectPassingTest:^BOOL(PSSockFiles *obj, NSUInteger idx, BOOL *stop) {
-				return obj.fd == fdinfo[i].proc_fd && obj.type == fdinfo[i].proc_fdtype;
+				return obj.fd == record->descriptor.proc_fd && obj.type == record->descriptor.proc_fdtype;
 			}];
 			if (!sock) {
-				sock = [PSSockFiles psSock:socks fd:fdinfo[i].proc_fd type:fdinfo[i].proc_fdtype];
+				sock = [PSSockFiles psSock:socks snapshot:snapshot record:record];
 				if (sock) [socks.socks addObject:sock];
-			} else if (![sock updateWithPid:socks.proc.pid fd:fdinfo[i].proc_fd]) {
+			} else if (![sock updateWithFDRecord:record]) {
 				sock.display = ProcDisplayTerminated;
-				PSSockFiles *newsock = [PSSockFiles psSock:socks fd:fdinfo[i].proc_fd type:fdinfo[i].proc_fdtype];
+				PSSockFiles *newsock = [PSSockFiles psSock:socks snapshot:snapshot record:record];
 				if (newsock) [socks.socks addObject:newsock];
 			}
-		}
 	}
-	free(fdinfo);
 	return 0;
 }
 

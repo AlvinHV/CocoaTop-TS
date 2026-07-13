@@ -43,6 +43,24 @@ struct CocoaTopThreadSnapshot {
 	struct CocoaTopThreadRecord records[];
 };
 
+struct CocoaTopFDRecord {
+	struct proc_fdinfo descriptor;
+	uint32_t info_offset;
+	uint32_t info_size;
+	uint32_t flags;
+	uint32_t status;
+	uint64_t node;
+	uint64_t peer;
+};
+
+struct CocoaTopFDSnapshot {
+	int32_t error;
+	pid_t pid;
+	uint32_t count;
+	uint32_t data_size;
+	struct CocoaTopFDRecord records[];
+};
+
 struct CocoaTopPortRecord {
 	ipc_info_name_t info;
 	natural_t object_type;
