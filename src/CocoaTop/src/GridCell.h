@@ -4,6 +4,8 @@
 #import "Sock.h"
 #import "Column.h"
 
+CGFloat GridTableLayoutWidth(UITableView *tableView);
+
 @interface GridTableCell : UITableViewCell
 @property (assign) NSUInteger id;
 @property (assign) NSUInteger firstColWidth;

@@ -14,7 +14,17 @@
 
 -(void)viewDidLoad {
     [super viewDidLoad];
-    [self.view addSubview: controller.view];
+    UIView *controllerView = controller.view;
+    controllerView.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:controllerView];
+    [NSLayoutConstraint activateConstraints:@[
+        [controllerView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [controllerView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+        [controllerView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [controllerView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+    ]];
+    [controller didMoveToParentViewController:self];
+
     mask = [[UIView alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
     mask.translatesAutoresizingMaskIntoConstraints = NO;
     if (@available(iOS 13, *)) {
@@ -41,9 +51,6 @@
         [self.view bringSubviewToFront: mask];
     } else {
         mask.hidden = true;
-    }
-    if (controller.view != nil) {
-        controller.view.frame = self.view.frame;
     }
 }
 

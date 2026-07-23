@@ -2,6 +2,16 @@
 #import "Compat.h"
 #import "GridCell.h"
 
+CGFloat GridTableLayoutWidth(UITableView *tableView)
+{
+	CGFloat width = tableView.safeAreaLayoutGuide.layoutFrame.size.width;
+	if (width <= 0) {
+		UIWindow *window = tableView.window ?: UIApplication.sharedApplication.keyWindow;
+		width = window.bounds.size.width - window.safeAreaInsets.left - window.safeAreaInsets.right;
+	}
+	return width;
+}
+
 /*
 @interface SmallGraph : UIView
 @property (strong) NSArray *dots;
@@ -93,7 +103,8 @@
 	if (self.dividers)
 		for (UIView *item in self.dividers) [item removeFromSuperview];
 	// Create new views
-	self.labels = [NSMutableArray arrayWithCapacity:columns.count-1];
+	NSUInteger labelCapacity = columns.count > 0 ? columns.count - 1 : 0;
+	self.labels = [NSMutableArray arrayWithCapacity:labelCapacity];
 	self.dividers = [NSMutableArray arrayWithCapacity:columns.count];
 	self.extendArgsLabel = [CocoaTopUserDefaults() boolForKey:@"FullWidthCommandLine"];
 	self.colorDiffs = [CocoaTopUserDefaults() boolForKey:@"ColorDiffs"];
@@ -200,7 +211,7 @@
 	CGRect frame;
 	NSInteger imageWidth = self.imageView.frame.size.width;
 	frame = self.contentView.frame;
-		frame.origin.x = 5;
+		frame.origin.x += 5;
 		frame.size.width -= 10;
 		self.contentView.frame = frame;
 	frame = self.imageView.frame;

@@ -291,9 +291,11 @@
 
 - (void)sortHeader:(UIGestureRecognizer *)gestureRecognizer
 {
-	CGPoint loc = [gestureRecognizer locationInView:header];
+	CGPoint loc = [gestureRecognizer locationInView:header.contentView];
+	if (!CGRectContainsPoint(header.contentView.bounds, loc))
+		return;
 	for (PSColumn *col in columns) {
-		if (loc.x > col.width) {
+		if (loc.x >= col.width) {
 			loc.x -= col.width;
 			continue;
 		}
@@ -325,7 +327,7 @@
 {
 	// When configId changes, all cells are reconfigured
 	configId++;
-	columns = [PSColumn psGetShownColumnsWithWidth:UIApplication.sharedApplication.keyWindow.bounds.size.width];
+	columns = [PSColumn psGetShownColumnsWithWidth:GridTableLayoutWidth(self.tableView)];
 	// Find sort column and create table header
 	filterColumn = [PSColumn psColumnWithTag:[CocoaTopUserDefaults() integerForKey:@"FilterColumn"]];
 	[self searchBarTextDidEndEditing:filter];

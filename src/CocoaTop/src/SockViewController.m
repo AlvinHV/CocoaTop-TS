@@ -182,9 +182,11 @@ NSString *ColumnModeName[ColumnModes] = {@"Summary", @"Threads", @"Open files", 
 
 - (void)sortHeader:(UIGestureRecognizer *)gestureRecognizer
 {
-	CGPoint loc = [gestureRecognizer locationInView:header];
+	CGPoint loc = [gestureRecognizer locationInView:header.contentView];
+	if (!CGRectContainsPoint(header.contentView.bounds, loc))
+		return;
 	for (PSColumn *col in columns) {
-		if (loc.x > col.width) {
+		if (loc.x >= col.width) {
 			loc.x -= col.width;
 			continue;
 		}
@@ -202,7 +204,7 @@ NSString *ColumnModeName[ColumnModes] = {@"Summary", @"Threads", @"Open files", 
 {
 	// When configId changes, all cells are reconfigured
 	configId++;
-	columns = [PSColumn psGetTaskColumnsWithWidth:self.tableView.bounds.size.width mode:viewMode];
+	columns = [PSColumn psGetTaskColumnsWithWidth:GridTableLayoutWidth(self.tableView) mode:viewMode];
 	// Find sort column and create table header
 	NSString *key = [NSString stringWithFormat:@"Mode%dSortColumn", viewMode];
 	sortColumn = [PSColumn psTaskColumnWithTag:[CocoaTopUserDefaults() integerForKey:key] forMode:viewMode];
