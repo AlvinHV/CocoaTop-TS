@@ -88,6 +88,10 @@
 				// "20000000 P_FORCEQUOTA			Force quota for root\n"
 			//*	// "40000000 P_NOCLDWAIT			No zombies when chil procs exit\n"
 				// "80000000 P_NOREMOTEHANG			Don't hang on remote FS ops"],
+		[PSColumn psColumnWithName:@"Sandbox" fullname:@"Sandbox" align:NSTextAlignmentLeft width:70 tag:52 style:0
+			data:^NSString*(PSProc *proc) { return proc.sandboxed < 0 ? @"-" : proc.sandboxed ? @"Yes" : @"No"; }
+			sort:^NSComparisonResult(PSProc *a, PSProc *b) { COMPARE(sandboxed); } summary:nil
+			descr:@"Whether the process is restricted by an Apple Seatbelt sandbox profile."],
 		[PSColumn psColumnWithName:@"RMem" fullname:@"Resident Memory Usage" align:NSTextAlignmentRight width:70 tag:7 style:ColumnStyleSortDesc | ColumnStyleColor
 			data:^NSString*(PSProc *proc) { return !proc->basic.resident_size ? @"-" :
 				[NSByteCountFormatter stringFromByteCount:proc->basic.resident_size countStyle:NSByteCountFormatterCountStyleMemory]; }

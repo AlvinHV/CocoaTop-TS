@@ -74,6 +74,7 @@ typedef struct PSCounts {
 @property (assign) unsigned int ports;
 @property (assign) unsigned int files;
 @property (assign) unsigned int socks;
+@property (assign) int8_t sandboxed;
 @property (assign) uint64_t taskTotalTime;
 @property (assign) uint64_t taskSampleTime;
 @property (strong) NSString *name;

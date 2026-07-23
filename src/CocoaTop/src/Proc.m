@@ -77,6 +77,7 @@
 	proc.ports = self.ports;
 	proc.files = self.files;
 	proc.socks = self.socks;
+	proc.sandboxed = self.sandboxed;
 	memcpy(&proc->basic, &basic, sizeof(basic));
 	memcpy(&proc->events, &events, sizeof(events));
 	memcpy(&proc->rusage, &rusage, sizeof(rusage));
@@ -197,6 +198,7 @@ unsigned int mach_thread_priority(thread_t thread, policy_t policy)
 		self.files = metrics->file_count;
 		self.socks = metrics->socket_count;
 	}
+	self.sandboxed = metrics->sandboxed;
 }
 
 - (void)update

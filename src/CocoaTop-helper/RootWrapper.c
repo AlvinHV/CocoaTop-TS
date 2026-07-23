@@ -126,6 +126,27 @@ static int get_fd_counts(pid_t pid, uint32_t *file_count, uint32_t *socket_count
     return 0;
 }
 
+typedef int (*sandbox_check_fn)(pid_t pid, const char *operation, int type, ...);
+
+static int8_t get_sandbox_status(pid_t pid) {
+    if (pid == 0)
+        return 0;
+
+    static sandbox_check_fn sandbox_check_ptr;
+    static int resolved;
+    if (!resolved) {
+        sandbox_check_ptr = (sandbox_check_fn)dlsym(RTLD_DEFAULT, "sandbox_check");
+        resolved = 1;
+    }
+    if (!sandbox_check_ptr) {
+        errno = ENOTSUP;
+        return -1;
+    }
+
+    int result = sandbox_check_ptr(pid, NULL, 0);
+    return result < 0 ? -1 : result != 0;
+}
+
 static int get_process_metrics(pid_t pid, struct CocoaTopProcessMetrics *metrics) {
     memset(metrics, 0, sizeof(*metrics));
     int first_error = 0;
@@ -159,8 +180,14 @@ static int get_process_metrics(pid_t pid, struct CocoaTopProcessMetrics *metrics
         first_error = errno;
     }
 
+    metrics->sandboxed = get_sandbox_status(pid);
+    if (metrics->sandboxed < 0 && !first_error) {
+        first_error = errno;
+    }
+
     if (metrics->taskinfo_valid || metrics->rusage_valid ||
-        metrics->port_count_valid || metrics->fd_count_valid)
+        metrics->port_count_valid || metrics->fd_count_valid ||
+        metrics->sandboxed >= 0)
         return 0;
 
     errno = first_error ? first_error : ESRCH;

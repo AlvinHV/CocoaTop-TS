@@ -18,6 +18,7 @@ struct CocoaTopProcessMetrics {
 	uint8_t rusage_valid;
 	uint8_t port_count_valid;
 	uint8_t fd_count_valid;
+	int8_t sandboxed;
 };
 
 struct CocoaTopProcessRecord {
